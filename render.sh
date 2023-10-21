@@ -1,6 +1,11 @@
 base=$(dirname "$0")
 
+input="$base/sample.md"
+output="$base/main.docx"
+
 pandoc \
-      "$base/sample.md" \
-      -o "$base/main.docx" \
+      "$input" \
+      -o "$output.tmp" \
       --filter "$base/pandoc-filter.js"
+
+node main.js "$output.tmp" "$output"

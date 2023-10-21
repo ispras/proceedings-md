@@ -1,8 +1,8 @@
-const fs = require('fs');
-const docx = require('docx');
-const JSZip = require("jszip");
-
-const {XMLParser, XMLBuilder, XMLValidator} = require("fast-xml-parser");
+import * as path from 'path';
+import * as fs from 'fs';
+import * as JSZip from 'jszip';
+import {XMLParser, XMLBuilder, XMLValidator} from 'fast-xml-parser';
+import {spawn} from "child_process";
 
 const properDocXmlns = new Map<string, string>([
     ["xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"],
@@ -28,7 +28,7 @@ function getChildTag(styles: any, name: string) {
 
 function getTagName(tag: any) {
     for (let key of Object.getOwnPropertyNames(tag)) {
-        if(key === ":@") continue
+        if (key === ":@") continue
         return key
     }
 }
@@ -57,8 +57,8 @@ function getDocStyleUseReferences(doc: any, result: any[] = [], met = new Set())
     }
     met.add(doc)
 
-    if(Array.isArray(doc)) {
-        for(let child of doc) {
+    if (Array.isArray(doc)) {
+        for (let child of doc) {
             result = getDocStyleUseReferences(child, result, met)
         }
     }
@@ -203,6 +203,7 @@ function appendStyles(target, defs) {
 interface ListStyles {
     BulletList: NumIdPatchEntry
     OrderedList: NumIdPatchEntry
+
     [key: string]: NumIdPatchEntry | undefined
 }
 
@@ -336,10 +337,10 @@ function addNewNumberings(targetNumberingParsed: any, newListStyles: Map<string,
     //   <w:abstractNumId w:val="oldNum"/>
     // </w:num>
 
-    for(let [newNum, oldNum] of newListStyles) {
+    for (let [newNum, oldNum] of newListStyles) {
 
         let overrides = []
-        for(let i = 0; i < 9; i++) {
+        for (let i = 0; i < 9; i++) {
             overrides.push({
                 "w:lvlOverride": [{
                     "w:startOverride": [],
@@ -386,14 +387,14 @@ function transferRels(source, target) {
     let presentIds = new Map<string, string>()
     let idMap = new Map<string, string>()
 
-    for(let rel of targetRels) {
+    for (let rel of targetRels) {
         presentIds.set(rel[":@"]["Target"], rel[":@"]["Id"])
     }
 
     let newIdCounter = 0
 
-    for(let rel of sourceRels) {
-        if(presentIds.has(rel[":@"]["Target"])) {
+    for (let rel of sourceRels) {
+        if (presentIds.has(rel[":@"]["Target"])) {
             idMap.set(rel[":@"]["Id"], presentIds.get(rel[":@"]["Target"]))
         } else {
             let newId = "template-id-" + (newIdCounter++)
@@ -411,11 +412,11 @@ function getRawText(tag) {
     let result = ""
     let tagName = getTagName(tag)
 
-    if(tagName === "#text") {
+    if (tagName === "#text") {
         result += tag["#text"]
     }
-    if(Array.isArray(tag[tagName])) {
-        for(let child of tag[tagName]) {
+    if (Array.isArray(tag[tagName])) {
+        for (let child of tag[tagName]) {
             result += getRawText(child)
         }
     }
@@ -424,8 +425,8 @@ function getRawText(tag) {
 }
 
 function replaceStringTemplate(tag: any, template: string, value: string) {
-    if(Array.isArray(tag)) {
-        for(let child of tag) {
+    if (Array.isArray(tag)) {
+        for (let child of tag) {
             replaceStringTemplate(child, template, value)
         }
         return
@@ -433,9 +434,9 @@ function replaceStringTemplate(tag: any, template: string, value: string) {
 
     let tagName = getTagName(tag)
 
-    if(tagName === "#text") {
+    if (tagName === "#text") {
         tag["#text"] = String(tag["#text"]).replace(template, value)
-    } else if(typeof tag[tagName] === "object") {
+    } else if (typeof tag[tagName] === "object") {
         replaceStringTemplate(tag[tagName], template, value)
     }
 }
@@ -443,16 +444,16 @@ function replaceStringTemplate(tag: any, template: string, value: string) {
 function getParagraphText(paragraph: any) {
     let result = ""
 
-    if(paragraph["w:t"]) {
+    if (paragraph["w:t"]) {
         result += getRawText(paragraph)
     }
 
-    for(let name of Object.getOwnPropertyNames(paragraph)) {
-        if(name === ":@") {
+    for (let name of Object.getOwnPropertyNames(paragraph)) {
+        if (name === ":@") {
             continue
         }
-        if(Array.isArray(paragraph[name])) {
-            for(let child of paragraph[name]) {
+        if (Array.isArray(paragraph[name])) {
+            for (let child of paragraph[name]) {
                 result += getParagraphText(child)
             }
         }
@@ -462,12 +463,12 @@ function getParagraphText(paragraph: any) {
 }
 
 function findParagraphWithPattern(body: any, pattern: string) {
-    for(let i = 0; i < body.length; i++) {
+    for (let i = 0; i < body.length; i++) {
         let text = getParagraphText(body[i])
-        if(text.indexOf(pattern) == -1) {
+        if (text.indexOf(pattern) == -1) {
             continue
         }
-        if(text != pattern) {
+        if (text != pattern) {
             throw new Error(`The ${pattern} pattern should be the only text of the paragraph`)
         }
 
@@ -482,56 +483,64 @@ function getDocumentBody(document: any) {
     return getChildTag(documentTag, "w:body")["w:body"]
 }
 
-function getMetaString(value: any[]) {
-    let result = ""
-
-    for(let component of value) {
-        if(component.t === "Str") {
-            result += component.c
+function getMetaString(value: any) {
+    if(Array.isArray(value)) {
+        let result = ""
+        for (let component of value) {
+            result += getMetaString(component)
         }
-        if(component.t === "Strong") {
-            result += "__" + getMetaString(component.c) + "__"
-        }
-        if(component.t === "Emph") {
-            result += "_" + getMetaString(component.c) + "_"
-        }
-        if(component.t === "Cite") {
-            result += getMetaString(component.c[1])
-        }
-        if(component.t === "Space") {
-            result += " "
-        }
-        if(component.t === "Link") {
-            result += getMetaString(component.c[1])
-        }
+        return result
     }
 
-    return result
+    if(typeof value !== "object" || !value.t) {
+        return ""
+    }
+
+    if (value.t === "Str") {
+        return value.c
+    }
+    if (value.t === "Strong") {
+        return "__" + getMetaString(value.c) + "__"
+    }
+    if (value.t === "Emph") {
+        return "_" + getMetaString(value.c) + "_"
+    }
+    if (value.t === "Cite") {
+        return getMetaString(value.c[1])
+    }
+    if (value.t === "Space") {
+        return " "
+    }
+    if (value.t === "Link") {
+        return getMetaString(value.c[1])
+    }
+
+    return getMetaString(value.c)
 }
 
 function convertMetaToJsonRecursive(meta: any) {
-    if(meta.t === "MetaList") {
+    if (meta.t === "MetaList") {
         return meta.c.map((element) => {
             return convertMetaToJsonRecursive(element)
         })
     }
 
-    if(meta.t === "MetaMap") {
+    if (meta.t === "MetaMap") {
         let result = {}
-        for(let key of Object.getOwnPropertyNames(meta.c)) {
+        for (let key of Object.getOwnPropertyNames(meta.c)) {
             result[key] = convertMetaToJsonRecursive(meta.c[key])
         }
         return result
     }
 
-    if(meta.t === "MetaInlines") {
+    if (meta.t === "MetaInlines") {
         return getMetaString(meta.c)
     }
 }
 
 function convertMetaToObject(meta: any) {
     let result = {}
-    for(let key of Object.getOwnPropertyNames(meta)) {
+    for (let key of Object.getOwnPropertyNames(meta)) {
         result[key] = convertMetaToJsonRecursive(meta[key])
     }
     return result
@@ -546,9 +555,9 @@ function templateReplaceBodyContents(templateBody: any, body: any) {
 function replaceParagraphContents(paragraph: any, text: string) {
     let contents = paragraph["w:p"]
 
-    for(let i = 0; i < contents.length; i++) {
+    for (let i = 0; i < contents.length; i++) {
         let tagName = getTagName(contents[i])
-        if(tagName === "w:r") {
+        if (tagName === "w:r") {
             contents.splice(i, 1)
             i--
         }
@@ -571,7 +580,7 @@ function templateAuthorList(templateBody: any, meta: any) {
 
     let authors = meta["ispras_templates"].authors
 
-    for(let language of languages) {
+    for (let language of languages) {
         let paragraphIndex = findParagraphWithPattern(templateBody, `{{{authors_${language}}}}`)
 
         let newParagraphs = []
@@ -588,13 +597,13 @@ function templateAuthorList(templateBody: any, meta: any) {
         templateBody.splice(paragraphIndex, 1, ...newParagraphs)
     }
 
-    for(let language of languages) {
+    for (let language of languages) {
         let paragraphIndex = findParagraphWithPattern(templateBody, `{{{organizations_${language}}}}`)
         let organizations = meta["ispras_templates"]["organizations_" + language]
 
         let newParagraphs = []
 
-        for(let organization of organizations) {
+        for (let organization of organizations) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]))
             replaceParagraphContents(newParagraph, organization)
             newParagraphs.push(newParagraph)
@@ -626,10 +635,10 @@ function getNumPr(ilvl: string, numId: string) {
     return {
         "w:numPr": [{
             "w:ilvl": [],
-            ":@": { "w:val": "0" }
+            ":@": {"w:val": "0"}
         }, {
             "w:numId": [],
-            ":@": { "w:val": numId }
+            ":@": {"w:val": numId}
         }]
     }
 }
@@ -641,7 +650,7 @@ function templateReplaceLinks(templateBody: any, meta: any, listRules: any) {
 
     let newParagraphs = []
 
-    for(let link of links) {
+    for (let link of links) {
         let newParagraph = getParagraphWithStyle(litListRule.styleName)
         let style = getChildTag(newParagraph["w:p"], "w:pPr")["w:pPr"]
         style.push(getNumPr("0", litListRule.numId))
@@ -659,8 +668,8 @@ function templateReplaceAuthorsDetail(templateBody: any, meta: any) {
 
     let newParagraphs = []
 
-    for(let author of authors) {
-        for(let language of languages) {
+    for (let author of authors) {
+        for (let language of languages) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]))
 
             let line = author["details_" + language]
@@ -677,15 +686,15 @@ function replacePageHeaders(headers: any[], meta: any) {
     let header_ru = meta["ispras_templates"].page_header_ru
     let header_en = meta["ispras_templates"].page_header_en
 
-    if(header_ru === "@use_citation") {
+    if (header_ru === "@use_citation") {
         header_ru = meta["ispras_templates"].for_citation_ru
     }
 
-    if(header_en === "@use_citation") {
+    if (header_en === "@use_citation") {
         header_en = meta["ispras_templates"].for_citation_en
     }
 
-    for(let header of headers) {
+    for (let header of headers) {
         replaceStringTemplate(header, `{{{page_header_ru}}}`, header_ru)
         replaceStringTemplate(header, `{{{page_header_en}}}`, header_en)
     }
@@ -701,8 +710,8 @@ function replaceTemplates(template: any, body: any, meta: any) {
 
     let templates = ["header", "abstract", "keywords", "for_citation", "acknowledgements"]
 
-    for(let template of templates) {
-        for(let language of languages) {
+    for (let template of templates) {
+        for (let language of languages) {
             let template_lang = template + "_" + language
             let value = meta["ispras_templates"][template_lang]
             replaceStringTemplate(templateBody, `{{{${template_lang}}}}`, value)
@@ -717,7 +726,7 @@ function replaceTemplates(template: any, body: any, meta: any) {
 function setXmlns(xml: any, xmlns: Map<string, string>) {
     let documentTag = getChildTag(xml, "w:document")
 
-    for(let [key, value] of xmlns) {
+    for (let [key, value] of xmlns) {
         documentTag[":@"][key] = value
     }
 }
@@ -731,19 +740,19 @@ let tagsWithRelId = new Map<string, string>([
 ])
 
 function patchRelIds(doc: any, map: Map<string, string>) {
-    if(Array.isArray(doc)) {
-        for(let child of doc) {
+    if (Array.isArray(doc)) {
+        for (let child of doc) {
             patchRelIds(child, map)
         }
     }
 
-    if(typeof doc != "object") return
+    if (typeof doc != "object") return
 
     let tagName = getTagName(doc)
 
     let attrs = doc[":@"]
-    if(attrs) {
-        for(let attr in ["r:id", "r:embed"]) {
+    if (attrs) {
+        for (let attr in ["r:id", "r:embed"]) {
             let relId = attrs[attr]
             if (relId && map.has(relId)) {
                 attrs[attr] = map.get(relId)
@@ -751,11 +760,11 @@ function patchRelIds(doc: any, map: Map<string, string>) {
         }
     }
 
-    if(doc[":@"]) {
+    if (doc[":@"]) {
         let relIdAttr = tagsWithRelId.get(tagName)
         if (relIdAttr) {
             let relId = doc[":@"][relIdAttr]
-            if(relId && map.has(relId)) {
+            if (relId && map.has(relId)) {
                 doc[":@"][relIdAttr] = map.get(relId)
             }
         }
@@ -764,7 +773,7 @@ function patchRelIds(doc: any, map: Map<string, string>) {
     patchRelIds(doc[tagName], map)
 }
 
-async function copyStyles() {
+async function fixDocxStyles(sourcePath, targetPath, meta) {
 
     let parser = new XMLParser({
         ignoreAttributes: false,
@@ -777,15 +786,16 @@ async function copyStyles() {
 
     let builder = new XMLBuilder({
         ignoreAttributes: false,
-        alwaysCreateTextNode: true,
         attributeNamePrefix: "",
         preserveOrder: true,
         commentPropName: "#comment"
     })
 
+    let resourcesDir = path.dirname(process.argv[1]) + "/../resources"
+
     // Load the source and target documents
-    let target = await JSZip.loadAsync(fs.readFileSync('main.docx'))
-    let source = await JSZip.loadAsync(fs.readFileSync('isp-reference.docx'))
+    let target = await JSZip.loadAsync(fs.readFileSync(sourcePath))
+    let source = await JSZip.loadAsync(fs.readFileSync(resourcesDir + '/isp-reference.docx'))
 
     let sourceStylesXML = await source.file("word/styles.xml").async("string");
     let targetStylesXML = await target.file("word/styles.xml").async("string");
@@ -795,7 +805,6 @@ async function copyStyles() {
     let targetDocumentRelsXML = await target.file("word/_rels/document.xml.rels").async("string");
     let sourceDocumentRelsXML = await source.file("word/_rels/document.xml.rels").async("string");
     let targetNumberingXML = await source.file("word/numbering.xml").async("string");
-    let metaFile = await fs.promises.readFile("document-metadata.json", "utf-8")
     let sourceHeader1 = await source.file("word/header1.xml").async("string");
     let sourceHeader2 = await source.file("word/header2.xml").async("string");
     let sourceHeader3 = await source.file("word/header3.xml").async("string");
@@ -808,7 +817,6 @@ async function copyStyles() {
     let sourceDocParsed = parser.parse(sourceDocXML);
     let targetDocParsed = parser.parse(targetDocXML);
     let targetNumberingParsed = parser.parse(targetNumberingXML);
-    let metaFileParsed = convertMetaToObject(JSON.parse(metaFile))
     let sourceHeader1Parsed = parser.parse(sourceHeader1)
     let sourceHeader2Parsed = parser.parse(sourceHeader2)
     let sourceHeader3Parsed = parser.parse(sourceHeader3)
@@ -889,9 +897,9 @@ async function copyStyles() {
     patchStyleUseReferences(targetDocParsed, targetStylesParsed, stylePatch)
 
     let patchRules = {
-        "OrderedList": { styleName: extractedStyleIdsByName.get("ispNumList"), numId: "33" },
-        "BulletList": { styleName: extractedStyleIdsByName.get("ispList1"), numId: "43" },
-        "LitList": { styleName: extractedStyleIdsByName.get("ispLitList"), numId: "80" },
+        "OrderedList": {styleName: extractedStyleIdsByName.get("ispNumList"), numId: "33"},
+        "BulletList": {styleName: extractedStyleIdsByName.get("ispList1"), numId: "43"},
+        "LitList": {styleName: extractedStyleIdsByName.get("ispLitList"), numId: "80"},
     };
 
     let newListStyles = applyListStyles(targetDocParsed, patchRules)
@@ -901,13 +909,13 @@ async function copyStyles() {
     let relMap = transferRels(sourceDocumentRelsParsed, targetDocumentRelsParsed)
     patchRelIds(sourceDocParsed, relMap)
 
-    targetDocParsed = replaceTemplates(sourceDocParsed, getDocumentBody(targetDocParsed), metaFileParsed)
+    targetDocParsed = replaceTemplates(sourceDocParsed, getDocumentBody(targetDocParsed), meta)
 
-    templateReplaceLinks(getDocumentBody(targetDocParsed), metaFileParsed, patchRules)
+    templateReplaceLinks(getDocumentBody(targetDocParsed), meta, patchRules)
 
     addNewNumberings(targetNumberingParsed, newListStyles)
 
-    replacePageHeaders([sourceHeader1Parsed, sourceHeader2Parsed, sourceHeader3Parsed], metaFileParsed)
+    replacePageHeaders([sourceHeader1Parsed, sourceHeader2Parsed, sourceHeader3Parsed], meta)
 
     addContentType(targetContentTypesParsed, "/word/footer1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
     addContentType(targetContentTypesParsed, "/word/footer2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
@@ -944,8 +952,215 @@ async function copyStyles() {
     target.file("word/styles.xml", builder.build(targetStylesParsed))
     target.file("word/document.xml", builder.build(targetDocParsed))
 
-    fs.writeFileSync("main_styled.docx", await target.generateAsync({type: "uint8array"}));
+    fs.writeFileSync(targetPath, await target.generateAsync({type: "uint8array"}));
 }
 
-copyStyles().then()
+let builder = new XMLBuilder({
+    ignoreAttributes: false,
+    attributeNamePrefix: "",
+    preserveOrder: true
+})
 
+function fixCompactLists(list) {
+    // For compact list, 'para' is replaced with 'plain'.
+    // Compact lists were not mentioned in the
+    // guidelines, so get rid of them
+
+    for(let i = 0; i < list.c.length; i++) {
+        let element = list.c[i]
+        if(typeof element[0] === "object" && element[0].t === "Plain") {
+            element[0].t = "Para"
+        }
+        list.c[i] = getPatchedMetaElement(list.c[i])
+    }
+
+    return [
+        {
+            t: "RawBlock",
+            c: ["openxml", `<!-- ListMode ${list.t} -->`]
+        },
+        list,
+        {
+            t: "RawBlock",
+            c: ["openxml", `<!-- ListMode None -->`]
+        }
+    ]
+}
+
+function getImageCaption(content) {
+    let elements = [
+        {
+            "w:pPr": [
+                {
+                    "w:pStyle": [],
+                    ":@": {"w:val": "ImageCaption"}
+                }, {
+                    "w:contextualSpacing": [],
+                    ":@": {
+                        "w:val": "true"
+                    }
+                }]
+        },
+        {
+            "w:r": [{
+                "w:t": [{
+                    "#text": getMetaString(content)
+                }],
+                ":@": {
+                    "xml:space": "preserve"
+                }
+            }]
+        }
+    ];
+
+    return {
+        t: "RawBlock",
+        c: ["openxml", `<w:p>${builder.build(elements)}</w:p>`]
+    };
+}
+
+function getListingCaption(content) {
+    let elements = [
+        {
+            "w:pPr": [
+                {
+                    "w:pStyle": [],
+                    ":@": {"w:val": "BodyText"}
+                }, {
+                    "w:jc": [],
+                    ":@": {"w:val": "left"}
+                },
+            ]
+        },
+        {
+            "w:r": [
+                {
+                    "w:rPr": [
+                        {"w:i": []},
+                        {"w:iCs": []},
+                        {"w:sz": [], ":@": {"w:val": "18"}},
+                        {"w:szCs": [], ":@": {"w:val": "18"}},
+                    ]}, {
+                    "w:t": [{
+                        "#text": getMetaString(content)
+                    }
+                    ],
+                    ":@": {
+                        "xml:space": "preserve"
+                    }
+                }]
+        }
+    ];
+
+    return {
+        t: "RawBlock",
+        c: ["openxml", `<w:p>${builder.build(elements)}</w:p>`]
+    };
+}
+
+function getPatchedMetaElement(element) {
+    if(Array.isArray(element)) {
+        let newArray = []
+
+        for(let i = 0; i < element.length; i++) {
+            let patched = getPatchedMetaElement(element[i])
+            if(Array.isArray(patched) && !Array.isArray(element[i])) {
+                newArray.push(...patched)
+            } else {
+                newArray.push(patched)
+            }
+        }
+
+        return newArray
+    }
+
+    if (typeof element !== "object" || !element) {
+        return element
+    }
+
+    let type = element.t
+    let value = element.c
+
+    if (type === 'Div') {
+        let content = value[1];
+        let classes = value[0][1];
+        if (classes) {
+            if (classes.includes("img-caption")) {
+                return getImageCaption(content)
+            }
+
+            if (classes.includes("table-caption") || classes.includes("listing-caption")) {
+                return getListingCaption(content)
+            }
+        }
+    } else if (type === 'BulletList' || type === 'OrderedList') {
+        return fixCompactLists(element)
+    }
+
+    for (let key of Object.getOwnPropertyNames(element)) {
+        element[key] = getPatchedMetaElement(element[key]);
+    }
+
+    return element
+}
+
+function pandoc(src, args): Promise<string> {
+    return new Promise((resolve, reject) => {
+        let stdout = ""
+        let stderr = ""
+
+        let pandocProcess = spawn('pandoc', args);
+
+        pandocProcess.stdin.end(src, 'utf-8');
+
+        pandocProcess.stdout.on('data', (data) => {
+            stdout += data
+        });
+
+        pandocProcess.stderr.on('data', (data) => {
+            stderr += data
+        });
+
+        pandocProcess.on('exit', function(code){
+            if (stderr.length) {
+                console.error("There was some pandoc warnings along the way:")
+                console.error(stderr)
+            }
+
+            if(code == 0) {
+                resolve(stdout)
+            } else {
+                reject(new Error("Pandoc returned non-zero exit code"))
+            }
+        });
+    })
+}
+
+async function generatePandocDocx(source: string, target: string) {
+    let markdown = await fs.promises.readFile(source, "utf-8")
+
+    let meta = await pandoc(markdown, ["-f", "markdown", "-t", "json"])
+    let metaParsed = JSON.parse(meta)
+
+    metaParsed.blocks = getPatchedMetaElement(metaParsed.blocks)
+
+    await pandoc(JSON.stringify(metaParsed), ["-f", "json", "-t", "docx", "-o", target])
+
+    return convertMetaToObject(metaParsed.meta)
+}
+
+async function main() {
+    let argv = process.argv
+    if (argv.length < 4) {
+        console.log("Usage: main.js <source> <target>")
+        process.exit(1)
+    }
+
+    let source = argv[2]
+    let target = argv[3]
+
+    let meta = await generatePandocDocx(source, target + ".tmp")
+    await fixDocxStyles(target + ".tmp", target, meta).then()
+}
+
+main().then()

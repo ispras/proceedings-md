@@ -11,18 +11,22 @@
 
 ### Prerequisites:
 
-1. `git clone https://gitlab.ispras.ru/build-race-condition-detection/proceedings`
-2. `cd proceedings`
-3. `npm install`
-4. `sudo apt-get install pandoc`
+```bash
+git clone https://gitlab.ispras.ru/build-race-condition-detection/proceedings
+cd proceedings
+npm install
+sudo apt-get install pandoc
+```
 
 ### Conversion:
 
-1. `pandoc sample.md -o main.docx --filter pandoc-filter.js`
-2. `node main.js`
+```
+cd sample
+node ../src/main.js sample.md sample.docx
+````
 
 __Note__ - Скрипт был разработан в рекордные сроки, и ещё сырой.
-Ошибки не обрабатываются и могут быть нечитаемыми. MR приветствуются!
+Ошибки мало обрабатываются и могут быть нечитаемыми. MR приветствуются!
 
 __Note__ - Некоторые версии ворда ругаются на то, что документ повреждён, но все равно
 открывают его. OpenOffice падает даже на документе из `pandoc` без модификаций.

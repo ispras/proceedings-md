@@ -1,7 +1,33 @@
-const fs = require('fs');
-const docx = require('docx');
-const JSZip = require("jszip");
-const { XMLParser, XMLBuilder, XMLValidator } = require("fast-xml-parser");
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
+const JSZip = __importStar(require("jszip"));
+const fast_xml_parser_1 = require("fast-xml-parser");
+const child_process_1 = require("child_process");
 const properDocXmlns = new Map([
     ["xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"],
     ["xmlns:m", "http://schemas.openxmlformats.org/officeDocument/2006/math"],
@@ -390,28 +416,35 @@ function getDocumentBody(document) {
     return getChildTag(documentTag, "w:body")["w:body"];
 }
 function getMetaString(value) {
-    let result = "";
-    for (let component of value) {
-        if (component.t === "Str") {
-            result += component.c;
+    if (Array.isArray(value)) {
+        let result = "";
+        for (let component of value) {
+            result += getMetaString(component);
         }
-        if (component.t === "Strong") {
-            result += "__" + getMetaString(component.c) + "__";
-        }
-        if (component.t === "Emph") {
-            result += "_" + getMetaString(component.c) + "_";
-        }
-        if (component.t === "Cite") {
-            result += getMetaString(component.c[1]);
-        }
-        if (component.t === "Space") {
-            result += " ";
-        }
-        if (component.t === "Link") {
-            result += getMetaString(component.c[1]);
-        }
+        return result;
     }
-    return result;
+    if (typeof value !== "object" || !value.t) {
+        return "";
+    }
+    if (value.t === "Str") {
+        return value.c;
+    }
+    if (value.t === "Strong") {
+        return "__" + getMetaString(value.c) + "__";
+    }
+    if (value.t === "Emph") {
+        return "_" + getMetaString(value.c) + "_";
+    }
+    if (value.t === "Cite") {
+        return getMetaString(value.c[1]);
+    }
+    if (value.t === "Space") {
+        return " ";
+    }
+    if (value.t === "Link") {
+        return getMetaString(value.c[1]);
+    }
+    return getMetaString(value.c);
 }
 function convertMetaToJsonRecursive(meta) {
     if (meta.t === "MetaList") {
@@ -615,8 +648,8 @@ function patchRelIds(doc, map) {
     }
     patchRelIds(doc[tagName], map);
 }
-async function copyStyles() {
-    let parser = new XMLParser({
+async function fixDocxStyles(sourcePath, targetPath, meta) {
+    let parser = new fast_xml_parser_1.XMLParser({
         ignoreAttributes: false,
         alwaysCreateTextNode: true,
         attributeNamePrefix: "",
@@ -624,16 +657,16 @@ async function copyStyles() {
         trimValues: false,
         commentPropName: "#comment"
     });
-    let builder = new XMLBuilder({
+    let builder = new fast_xml_parser_1.XMLBuilder({
         ignoreAttributes: false,
-        alwaysCreateTextNode: true,
         attributeNamePrefix: "",
         preserveOrder: true,
         commentPropName: "#comment"
     });
+    let resourcesDir = path.dirname(process.argv[1]) + "/../resources";
     // Load the source and target documents
-    let target = await JSZip.loadAsync(fs.readFileSync('main.docx'));
-    let source = await JSZip.loadAsync(fs.readFileSync('isp-reference.docx'));
+    let target = await JSZip.loadAsync(fs.readFileSync(sourcePath));
+    let source = await JSZip.loadAsync(fs.readFileSync(resourcesDir + '/isp-reference.docx'));
     let sourceStylesXML = await source.file("word/styles.xml").async("string");
     let targetStylesXML = await target.file("word/styles.xml").async("string");
     let sourceDocXML = await source.file("word/document.xml").async("string");
@@ -642,7 +675,6 @@ async function copyStyles() {
     let targetDocumentRelsXML = await target.file("word/_rels/document.xml.rels").async("string");
     let sourceDocumentRelsXML = await source.file("word/_rels/document.xml.rels").async("string");
     let targetNumberingXML = await source.file("word/numbering.xml").async("string");
-    let metaFile = await fs.promises.readFile("document-metadata.json", "utf-8");
     let sourceHeader1 = await source.file("word/header1.xml").async("string");
     let sourceHeader2 = await source.file("word/header2.xml").async("string");
     let sourceHeader3 = await source.file("word/header3.xml").async("string");
@@ -654,7 +686,6 @@ async function copyStyles() {
     let sourceDocParsed = parser.parse(sourceDocXML);
     let targetDocParsed = parser.parse(targetDocXML);
     let targetNumberingParsed = parser.parse(targetNumberingXML);
-    let metaFileParsed = convertMetaToObject(JSON.parse(metaFile));
     let sourceHeader1Parsed = parser.parse(sourceHeader1);
     let sourceHeader2Parsed = parser.parse(sourceHeader2);
     let sourceHeader3Parsed = parser.parse(sourceHeader3);
@@ -729,10 +760,10 @@ async function copyStyles() {
     setXmlns(sourceDocParsed, properDocXmlns);
     let relMap = transferRels(sourceDocumentRelsParsed, targetDocumentRelsParsed);
     patchRelIds(sourceDocParsed, relMap);
-    targetDocParsed = replaceTemplates(sourceDocParsed, getDocumentBody(targetDocParsed), metaFileParsed);
-    templateReplaceLinks(getDocumentBody(targetDocParsed), metaFileParsed, patchRules);
+    targetDocParsed = replaceTemplates(sourceDocParsed, getDocumentBody(targetDocParsed), meta);
+    templateReplaceLinks(getDocumentBody(targetDocParsed), meta, patchRules);
     addNewNumberings(targetNumberingParsed, newListStyles);
-    replacePageHeaders([sourceHeader1Parsed, sourceHeader2Parsed, sourceHeader3Parsed], metaFileParsed);
+    replacePageHeaders([sourceHeader1Parsed, sourceHeader2Parsed, sourceHeader3Parsed], meta);
     addContentType(targetContentTypesParsed, "/word/footer1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
     addContentType(targetContentTypesParsed, "/word/footer2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
     addContentType(targetContentTypesParsed, "/word/footer3.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
@@ -762,7 +793,189 @@ async function copyStyles() {
     target.file("word/numbering.xml", builder.build(targetNumberingParsed));
     target.file("word/styles.xml", builder.build(targetStylesParsed));
     target.file("word/document.xml", builder.build(targetDocParsed));
-    fs.writeFileSync("main_styled.docx", await target.generateAsync({ type: "uint8array" }));
+    fs.writeFileSync(targetPath, await target.generateAsync({ type: "uint8array" }));
 }
-copyStyles().then();
+let builder = new fast_xml_parser_1.XMLBuilder({
+    ignoreAttributes: false,
+    attributeNamePrefix: "",
+    preserveOrder: true
+});
+function fixCompactLists(list) {
+    // For compact list, 'para' is replaced with 'plain'.
+    // Compact lists were not mentioned in the
+    // guidelines, so get rid of them
+    for (let i = 0; i < list.c.length; i++) {
+        let element = list.c[i];
+        if (typeof element[0] === "object" && element[0].t === "Plain") {
+            element[0].t = "Para";
+        }
+        list.c[i] = getPatchedMetaElement(list.c[i]);
+    }
+    return [
+        {
+            t: "RawBlock",
+            c: ["openxml", `<!-- ListMode ${list.t} -->`]
+        },
+        list,
+        {
+            t: "RawBlock",
+            c: ["openxml", `<!-- ListMode None -->`]
+        }
+    ];
+}
+function getImageCaption(content) {
+    let elements = [
+        {
+            "w:pPr": [
+                {
+                    "w:pStyle": [],
+                    ":@": { "w:val": "ImageCaption" }
+                }, {
+                    "w:contextualSpacing": [],
+                    ":@": {
+                        "w:val": "true"
+                    }
+                }
+            ]
+        },
+        {
+            "w:r": [{
+                    "w:t": [{
+                            "#text": getMetaString(content)
+                        }],
+                    ":@": {
+                        "xml:space": "preserve"
+                    }
+                }]
+        }
+    ];
+    return {
+        t: "RawBlock",
+        c: ["openxml", `<w:p>${builder.build(elements)}</w:p>`]
+    };
+}
+function getListingCaption(content) {
+    let elements = [
+        {
+            "w:pPr": [
+                {
+                    "w:pStyle": [],
+                    ":@": { "w:val": "BodyText" }
+                }, {
+                    "w:jc": [],
+                    ":@": { "w:val": "left" }
+                },
+            ]
+        },
+        {
+            "w:r": [
+                {
+                    "w:rPr": [
+                        { "w:i": [] },
+                        { "w:iCs": [] },
+                        { "w:sz": [], ":@": { "w:val": "18" } },
+                        { "w:szCs": [], ":@": { "w:val": "18" } },
+                    ]
+                }, {
+                    "w:t": [{
+                            "#text": getMetaString(content)
+                        }
+                    ],
+                    ":@": {
+                        "xml:space": "preserve"
+                    }
+                }
+            ]
+        }
+    ];
+    return {
+        t: "RawBlock",
+        c: ["openxml", `<w:p>${builder.build(elements)}</w:p>`]
+    };
+}
+function getPatchedMetaElement(element) {
+    if (Array.isArray(element)) {
+        let newArray = [];
+        for (let i = 0; i < element.length; i++) {
+            let patched = getPatchedMetaElement(element[i]);
+            if (Array.isArray(patched) && !Array.isArray(element[i])) {
+                newArray.push(...patched);
+            }
+            else {
+                newArray.push(patched);
+            }
+        }
+        return newArray;
+    }
+    if (typeof element !== "object" || !element) {
+        return element;
+    }
+    let type = element.t;
+    let value = element.c;
+    if (type === 'Div') {
+        let content = value[1];
+        let classes = value[0][1];
+        if (classes) {
+            if (classes.includes("img-caption")) {
+                return getImageCaption(content);
+            }
+            if (classes.includes("table-caption") || classes.includes("listing-caption")) {
+                return getListingCaption(content);
+            }
+        }
+    }
+    else if (type === 'BulletList' || type === 'OrderedList') {
+        return fixCompactLists(element);
+    }
+    for (let key of Object.getOwnPropertyNames(element)) {
+        element[key] = getPatchedMetaElement(element[key]);
+    }
+    return element;
+}
+function pandoc(src, args) {
+    return new Promise((resolve, reject) => {
+        let stdout = "";
+        let stderr = "";
+        let pandocProcess = (0, child_process_1.spawn)('pandoc', args);
+        pandocProcess.stdin.end(src, 'utf-8');
+        pandocProcess.stdout.on('data', (data) => {
+            stdout += data;
+        });
+        pandocProcess.stderr.on('data', (data) => {
+            stderr += data;
+        });
+        pandocProcess.on('exit', function (code) {
+            if (stderr.length) {
+                console.error("There was some pandoc warnings along the way:");
+                console.error(stderr);
+            }
+            if (code == 0) {
+                resolve(stdout);
+            }
+            else {
+                reject(new Error("Pandoc returned non-zero exit code"));
+            }
+        });
+    });
+}
+async function generatePandocDocx(source, target) {
+    let markdown = await fs.promises.readFile(source, "utf-8");
+    let meta = await pandoc(markdown, ["-f", "markdown", "-t", "json"]);
+    let metaParsed = JSON.parse(meta);
+    metaParsed.blocks = getPatchedMetaElement(metaParsed.blocks);
+    await pandoc(JSON.stringify(metaParsed), ["-f", "json", "-t", "docx", "-o", target]);
+    return convertMetaToObject(metaParsed.meta);
+}
+async function main() {
+    let argv = process.argv;
+    if (argv.length < 4) {
+        console.log("Usage: main.js <source> <target>");
+        process.exit(1);
+    }
+    let source = argv[2];
+    let target = argv[3];
+    let meta = await generatePandocDocx(source, target + ".tmp");
+    await fixDocxStyles(target + ".tmp", target, meta).then();
+}
+main().then();
 //# sourceMappingURL=main.js.map
