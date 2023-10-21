@@ -489,6 +489,15 @@ function getMetaString(value: any[]) {
         if(component.t === "Str") {
             result += component.c
         }
+        if(component.t === "Strong") {
+            result += "__" + getMetaString(component.c) + "__"
+        }
+        if(component.t === "Emph") {
+            result += "_" + getMetaString(component.c) + "_"
+        }
+        if(component.t === "Cite") {
+            result += getMetaString(component.c[1])
+        }
         if(component.t === "Space") {
             result += " "
         }
@@ -664,6 +673,24 @@ function templateReplaceAuthorsDetail(templateBody: any, meta: any) {
     templateBody.splice(paragraphIndex, 1, ...newParagraphs)
 }
 
+function replacePageHeaders(headers: any[], meta: any) {
+    let header_ru = meta["ispras_templates"].page_header_ru
+    let header_en = meta["ispras_templates"].page_header_en
+
+    if(header_ru === "@use_citation") {
+        header_ru = meta["ispras_templates"].for_citation_ru
+    }
+
+    if(header_en === "@use_citation") {
+        header_en = meta["ispras_templates"].for_citation_en
+    }
+
+    for(let header of headers) {
+        replaceStringTemplate(header, `{{{page_header_ru}}}`, header_ru)
+        replaceStringTemplate(header, `{{{page_header_en}}}`, header_en)
+    }
+}
+
 function replaceTemplates(template: any, body: any, meta: any) {
     let templateCopy = JSON.parse(JSON.stringify(template))
 
@@ -769,6 +796,9 @@ async function copyStyles() {
     let sourceDocumentRelsXML = await source.file("word/_rels/document.xml.rels").async("string");
     let targetNumberingXML = await source.file("word/numbering.xml").async("string");
     let metaFile = await fs.promises.readFile("document-metadata.json", "utf-8")
+    let sourceHeader1 = await source.file("word/header1.xml").async("string");
+    let sourceHeader2 = await source.file("word/header2.xml").async("string");
+    let sourceHeader3 = await source.file("word/header3.xml").async("string");
 
     let targetContentTypesParsed = parser.parse(targetContentTypesXML);
     let targetDocumentRelsParsed = parser.parse(targetDocumentRelsXML);
@@ -779,6 +809,9 @@ async function copyStyles() {
     let targetDocParsed = parser.parse(targetDocXML);
     let targetNumberingParsed = parser.parse(targetNumberingXML);
     let metaFileParsed = convertMetaToObject(JSON.parse(metaFile))
+    let sourceHeader1Parsed = parser.parse(sourceHeader1)
+    let sourceHeader2Parsed = parser.parse(sourceHeader2)
+    let sourceHeader3Parsed = parser.parse(sourceHeader3)
 
     copyLatentStyles(sourceStylesParsed, targetStylesParsed)
     copyDocDefaults(sourceStylesParsed, targetStylesParsed)
@@ -800,6 +833,7 @@ async function copyStyles() {
         "ispListing Знак",
         "ispLitList",
         "ispPicture_sign",
+        "ispNumList",
         "Normal"
     ].map(name => sourceStylesNamesToId.get(name)))
     let mappingTable = getMappingTable(usedStyles)
@@ -873,6 +907,8 @@ async function copyStyles() {
 
     addNewNumberings(targetNumberingParsed, newListStyles)
 
+    replacePageHeaders([sourceHeader1Parsed, sourceHeader2Parsed, sourceHeader3Parsed], metaFileParsed)
+
     addContentType(targetContentTypesParsed, "/word/footer1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
     addContentType(targetContentTypesParsed, "/word/footer2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
     addContentType(targetContentTypesParsed, "/word/footer3.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
@@ -887,9 +923,6 @@ async function copyStyles() {
     await copyFile(source, target, "word/_rels/footer2.xml.rels")
     await copyFile(source, target, "word/_rels/footer3.xml.rels")
 
-    await copyFile(source, target, "word/header1.xml")
-    await copyFile(source, target, "word/header2.xml")
-    await copyFile(source, target, "word/header3.xml")
     await copyFile(source, target, "word/footer1.xml")
     await copyFile(source, target, "word/footer2.xml")
     await copyFile(source, target, "word/footer3.xml")
@@ -900,6 +933,10 @@ async function copyStyles() {
     await copyFile(source, target, "word/settings.xml")
     await copyFile(source, target, "word/webSettings.xml")
     await copyFile(source, target, "word/media/image1.png")
+
+    target.file("word/header1.xml", builder.build(sourceHeader1Parsed))
+    target.file("word/header2.xml", builder.build(sourceHeader2Parsed))
+    target.file("word/header3.xml", builder.build(sourceHeader3Parsed))
 
     target.file("word/_rels/document.xml.rels", builder.build(targetDocumentRelsParsed))
     target.file("[Content_Types].xml", builder.build(targetContentTypesParsed))

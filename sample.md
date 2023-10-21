@@ -108,9 +108,18 @@ ispras_templates:
   keywords_ru: 'cписок ключевых слов, разделенных точкой с запятой.'
   keywords_en: 'ключевые слова на английском языке'
 
-  for_citation_ru: 'Иванов И.И., Петров П.П. Заголовок статьи. Труды ИСП РАН'
-  for_citation_en: 'Ivanov I.I., Petrov P.P. Article title. Trudy ISP RAN/Proc.
-    ISP RAS'
+  for_citation_ru: 'Иванов И.И., Петров П.П. Заголовок статьи.'
+  for_citation_en: 'Ivanov I.I., Petrov P.P. Article title.'
+  
+  # page_header_* matches for_citation_* in template. It's still possible
+  # to set these values to something different. @use_citation is a special
+  # flag intended to avoid explicit duplication.
+  
+  # page_header_ru: 'Иванов И.И., Петров П.П. Заголовок статьи.'
+  # page_header_en: 'Ivanov I.I., Petrov P.P. Article title.'
+  
+  page_header_ru: '@use_citation'
+  page_header_en: '@use_citation'
 
   acknowledgements_ru: 'В этом блоке перечисляются организации, поддерживающие
     исследование, описанное в статье, гранты и т.д.'
