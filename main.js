@@ -2,6 +2,18 @@ const fs = require('fs');
 const docx = require('docx');
 const JSZip = require("jszip");
 const { XMLParser, XMLBuilder, XMLValidator } = require("fast-xml-parser");
+const properDocXmlns = new Map([
+    ["xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"],
+    ["xmlns:m", "http://schemas.openxmlformats.org/officeDocument/2006/math"],
+    ["xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"],
+    ["xmlns:o", "urn:schemas-microsoft-com:office:office"],
+    ["xmlns:v", "urn:schemas-microsoft-com:vml"],
+    ["xmlns:w10", "urn:schemas-microsoft-com:office:word"],
+    ["xmlns:a", "http://schemas.openxmlformats.org/drawingml/2006/main"],
+    ["xmlns:pic", "http://schemas.openxmlformats.org/drawingml/2006/picture"],
+    ["xmlns:wp", "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"],
+]);
+const languages = ["ru", "en"];
 function getChildTag(styles, name) {
     for (let child of styles) {
         if (child[name]) {
@@ -9,11 +21,19 @@ function getChildTag(styles, name) {
         }
     }
 }
+function getTagName(tag) {
+    for (let key of Object.getOwnPropertyNames(tag)) {
+        if (key === ":@")
+            continue;
+        return key;
+    }
+}
 function getStyleCrossReferences(styles) {
     let result = [];
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"])
             continue;
+        result.push(style[":@"]);
         let basedOnTag = getChildTag(style["w:style"], "w:basedOn");
         if (basedOnTag)
             result.push(basedOnTag[":@"]);
@@ -31,54 +51,45 @@ function getDocStyleUseReferences(doc, result = [], met = new Set()) {
         return result;
     }
     met.add(doc);
-    for (let key of Object.getOwnPropertyNames(doc)) {
-        if (key === "w:pStyle" || key == "w:rStyle") {
-            result.push(doc[":@"]);
-        }
-        else {
-            result = getDocStyleUseReferences(doc[key], result, met);
+    if (Array.isArray(doc)) {
+        for (let child of doc) {
+            result = getDocStyleUseReferences(child, result, met);
         }
     }
+    let tagName = getTagName(doc);
+    if (tagName === "w:pStyle" || tagName == "w:rStyle") {
+        result.push(doc[":@"]);
+    }
+    result = getDocStyleUseReferences(doc[tagName], result, met);
     return result;
 }
-function extractStyleDefs(styles, map) {
+function extractStyleDefs(styles) {
     let result = [];
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"])
             continue;
-        if (map.has(style[":@"]["w:styleId"])) {
+        if (style[":@"]["w:styleId"].startsWith("template-")) {
             let copy = JSON.parse(JSON.stringify(style));
             result.push(copy);
         }
     }
     return result;
 }
-function patchStyleDefs(styles, map) {
-    let result = [];
-    for (let style of styles) {
-        if (map.has(style[":@"]["w:styleId"])) {
-            style[":@"]["w:styleId"] = map.get(style[":@"]["w:styleId"]);
-            let basedOnTag = getChildTag(style["w:style"], "w:basedOn");
-            if (basedOnTag)
-                basedOnTag[":@"]["w:val"] = map.get(basedOnTag[":@"]["w:val"]);
-            let linkTag = getChildTag(style["w:style"], "w:link");
-            if (linkTag)
-                linkTag[":@"]["w:val"] = map.get(linkTag[":@"]["w:val"]);
-            let nextTag = getChildTag(style["w:style"], "w:next");
-            if (nextTag)
-                nextTag[":@"]["w:val"] = map.get(nextTag[":@"]["w:val"]);
-            result.push(style);
+function patchStyleDefinitions(doc, styles, map) {
+    let crossReferences = getStyleCrossReferences(styles);
+    for (let ref of crossReferences) {
+        if (ref["w:styleId"] && map.has(ref["w:styleId"])) {
+            ref["w:styleId"] = map.get(ref["w:styleId"]);
         }
     }
-    return result;
 }
 function patchStyleUseReferences(doc, styles, map) {
     let docReferences = getDocStyleUseReferences(doc);
     let crossReferences = getStyleCrossReferences(styles);
     for (let ref of docReferences.concat(crossReferences)) {
-        if (!map.has(ref["w:val"]))
-            continue;
-        ref["w:val"] = map.get(ref["w:val"]);
+        if (ref["w:val"] && map.has(ref["w:val"])) {
+            ref["w:val"] = map.get(ref["w:val"]);
+        }
     }
 }
 function getUsedStyles(doc) {
@@ -247,18 +258,6 @@ function copyDocDefaults(source, target) {
         targetDocDefaults[":@"] = JSON.parse(JSON.stringify(sourceDocDefaults[":@"]));
     }
 }
-function copySectPr(source, target) {
-    let sourceDocument = getChildTag(source, "w:document")["w:document"];
-    let sourceBody = getChildTag(sourceDocument, "w:body")["w:body"];
-    let sourceSectPr = getChildTag(sourceBody, "w:sectPr");
-    let targetDocument = getChildTag(target, "w:document")["w:document"];
-    let targetBody = getChildTag(targetDocument, "w:body")["w:body"];
-    let targetSectPr = getChildTag(targetBody, "w:sectPr");
-    targetSectPr["w:sectPr"] = JSON.parse(JSON.stringify(sourceSectPr["w:sectPr"]));
-    if (sourceSectPr[":@"]) {
-        targetSectPr[":@"] = JSON.parse(JSON.stringify(sourceSectPr[":@"]));
-    }
-}
 async function copyFile(source, target, path) {
     target.file(path, await source.file(path).async("arraybuffer"));
 }
@@ -308,30 +307,292 @@ function addContentType(contentTypes, partName, contentType) {
 function transferRels(source, target) {
     let sourceRels = getChildTag(source, "Relationships")["Relationships"];
     let targetRels = getChildTag(target, "Relationships")["Relationships"];
-    let presentIds = new Set();
+    let presentIds = new Map();
+    let idMap = new Map();
     for (let rel of targetRels) {
-        presentIds.add(rel[":@"]["Id"]);
+        presentIds.set(rel[":@"]["Target"], rel[":@"]["Id"]);
     }
+    let newIdCounter = 0;
     for (let rel of sourceRels) {
-        if (!presentIds.has(rel[":@"]["Id"])) {
-            targetRels.push(JSON.parse(JSON.stringify(rel)));
+        if (presentIds.has(rel[":@"]["Target"])) {
+            idMap.set(rel[":@"]["Id"], presentIds.get(rel[":@"]["Target"]));
+        }
+        else {
+            let newId = "template-id-" + (newIdCounter++);
+            let relCopy = JSON.parse(JSON.stringify(rel));
+            relCopy[":@"]["Id"] = newId;
+            targetRels.push(relCopy);
+            idMap.set(rel[":@"]["Id"], newId);
         }
     }
+    return idMap;
+}
+function getRawText(tag) {
+    let result = "";
+    let tagName = getTagName(tag);
+    if (tagName === "#text") {
+        result += tag["#text"];
+    }
+    if (Array.isArray(tag[tagName])) {
+        for (let child of tag[tagName]) {
+            result += getRawText(child);
+        }
+    }
+    return result;
+}
+function replaceStringTemplate(tag, template, value) {
+    if (Array.isArray(tag)) {
+        for (let child of tag) {
+            replaceStringTemplate(child, template, value);
+        }
+        return;
+    }
+    let tagName = getTagName(tag);
+    if (tagName === "#text") {
+        tag["#text"] = String(tag["#text"]).replace(template, value);
+    }
+    else if (typeof tag[tagName] === "object") {
+        replaceStringTemplate(tag[tagName], template, value);
+    }
+}
+function getParagraphText(paragraph) {
+    let result = "";
+    if (paragraph["w:t"]) {
+        result += getRawText(paragraph);
+    }
+    for (let name of Object.getOwnPropertyNames(paragraph)) {
+        if (name === ":@") {
+            continue;
+        }
+        if (Array.isArray(paragraph[name])) {
+            for (let child of paragraph[name]) {
+                result += getParagraphText(child);
+            }
+        }
+    }
+    return result;
+}
+function findParagraphWithPattern(body, pattern) {
+    for (let i = 0; i < body.length; i++) {
+        let text = getParagraphText(body[i]);
+        if (text.indexOf(pattern) == -1) {
+            continue;
+        }
+        if (text != pattern) {
+            throw new Error(`The ${pattern} pattern should be the only text of the paragraph`);
+        }
+        return i;
+    }
+    return null;
+}
+function getDocumentBody(document) {
+    let documentTag = getChildTag(document, "w:document")["w:document"];
+    return getChildTag(documentTag, "w:body")["w:body"];
+}
+function getMetaString(value) {
+    let result = "";
+    for (let component of value) {
+        if (component.t === "Str") {
+            result += component.c;
+        }
+        if (component.t === "Space") {
+            result += " ";
+        }
+        if (component.t === "Link") {
+            result += getMetaString(component.c[1]);
+        }
+    }
+    return result;
+}
+function convertMetaToJsonRecursive(meta) {
+    if (meta.t === "MetaList") {
+        return meta.c.map((element) => {
+            return convertMetaToJsonRecursive(element);
+        });
+    }
+    if (meta.t === "MetaMap") {
+        let result = {};
+        for (let key of Object.getOwnPropertyNames(meta.c)) {
+            result[key] = convertMetaToJsonRecursive(meta.c[key]);
+        }
+        return result;
+    }
+    if (meta.t === "MetaInlines") {
+        return getMetaString(meta.c);
+    }
+}
+function convertMetaToObject(meta) {
+    let result = {};
+    for (let key of Object.getOwnPropertyNames(meta)) {
+        result[key] = convertMetaToJsonRecursive(meta[key]);
+    }
+    return result;
+}
+function templateReplaceBodyContents(templateBody, body) {
+    let paragraphIndex = findParagraphWithPattern(templateBody, "{{{body}}}");
+    templateBody.splice(paragraphIndex, 1, ...body);
+}
+function replaceParagraphContents(paragraph, text) {
+    let contents = paragraph["w:p"];
+    for (let i = 0; i < contents.length; i++) {
+        let tagName = getTagName(contents[i]);
+        if (tagName === "w:r") {
+            contents.splice(i, 1);
+            i--;
+        }
+    }
+    contents.push({
+        "w:r": [
+            {
+                "w:t": [{
+                        "#text": text
+                    }],
+                ":@": {
+                    "xml:space": "preserve"
+                }
+            }
+        ]
+    });
+}
+function templateAuthorList(templateBody, meta) {
+    let authors = meta["ispras_templates"].authors;
+    for (let language of languages) {
+        let paragraphIndex = findParagraphWithPattern(templateBody, `{{{authors_${language}}}}`);
+        let newParagraphs = [];
+        for (let author of authors) {
+            let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
+            let line = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">";
+            replaceParagraphContents(newParagraph, line);
+            newParagraphs.push(newParagraph);
+        }
+        templateBody.splice(paragraphIndex, 1, ...newParagraphs);
+    }
+    for (let language of languages) {
+        let paragraphIndex = findParagraphWithPattern(templateBody, `{{{organizations_${language}}}}`);
+        let organizations = meta["ispras_templates"]["organizations_" + language];
+        let newParagraphs = [];
+        for (let organization of organizations) {
+            let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
+            replaceParagraphContents(newParagraph, organization);
+            newParagraphs.push(newParagraph);
+        }
+        templateBody.splice(paragraphIndex, 1, ...newParagraphs);
+    }
+}
+function getParagraphWithStyle(style) {
+    return {
+        "w:p": [{
+                "w:pPr": [{
+                        "w:pStyle": [],
+                        ":@": {
+                            "w:val": style
+                        }
+                    }]
+            }]
+    };
+}
+function getNumPr(ilvl, numId) {
+    // <w:numPr>
+    //    <w:ilvl w:val="<ilvl>"/>
+    //    <w:numId w:val="<numId>"/>
+    // </w:numPr>
+    return {
+        "w:numPr": [{
+                "w:ilvl": [],
+                ":@": { "w:val": "0" }
+            }, {
+                "w:numId": [],
+                ":@": { "w:val": numId }
+            }]
+    };
+}
+function templateReplaceLinks(templateBody, meta, listRules) {
+    let litListRule = listRules["LitList"];
+    let paragraphIndex = findParagraphWithPattern(templateBody, "{{{links}}}");
+    let links = meta["ispras_templates"].links;
+    let newParagraphs = [];
+    for (let link of links) {
+        let newParagraph = getParagraphWithStyle(litListRule.styleName);
+        let style = getChildTag(newParagraph["w:p"], "w:pPr")["w:pPr"];
+        style.push(getNumPr("0", litListRule.numId));
+        replaceParagraphContents(newParagraph, link);
+        newParagraphs.push(newParagraph);
+    }
+    templateBody.splice(paragraphIndex, 1, ...newParagraphs);
+}
+function templateReplaceAuthorsDetail(templateBody, meta) {
+    let paragraphIndex = findParagraphWithPattern(templateBody, "{{{authors_detail}}}");
+    let authors = meta["ispras_templates"].authors;
+    let newParagraphs = [];
+    for (let author of authors) {
+        for (let language of languages) {
+            let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
+            let line = author["details_" + language];
+            replaceParagraphContents(newParagraph, line);
+            newParagraphs.push(newParagraph);
+        }
+    }
+    templateBody.splice(paragraphIndex, 1, ...newParagraphs);
+}
+function replaceTemplates(template, body, meta) {
+    let templateCopy = JSON.parse(JSON.stringify(template));
+    let templateBody = getDocumentBody(templateCopy);
+    templateReplaceBodyContents(templateBody, body);
+    templateAuthorList(templateBody, meta);
+    let templates = ["header", "abstract", "keywords", "for_citation", "acknowledgements"];
+    for (let template of templates) {
+        for (let language of languages) {
+            let template_lang = template + "_" + language;
+            let value = meta["ispras_templates"][template_lang];
+            replaceStringTemplate(templateBody, `{{{${template_lang}}}}`, value);
+        }
+    }
+    templateReplaceAuthorsDetail(templateBody, meta);
+    return templateCopy;
+}
+function setXmlns(xml, xmlns) {
+    let documentTag = getChildTag(xml, "w:document");
+    for (let [key, value] of xmlns) {
+        documentTag[":@"][key] = value;
+    }
+}
+let tagsWithRelId = new Map([
+    ["w:headerReference", "r:id"],
+    ["w:footerReference", "r:id"],
+    ["w:hyperlink", "r:id"],
+    ["v:imagedata", "r:id"],
+    ["a:blip", "r:embed"],
+]);
+function patchRelIds(doc, map) {
+    if (Array.isArray(doc)) {
+        for (let child of doc) {
+            patchRelIds(child, map);
+        }
+    }
+    if (typeof doc != "object")
+        return;
+    let tagName = getTagName(doc);
+    let attrs = doc[":@"];
+    if (attrs) {
+        for (let attr in ["r:id", "r:embed"]) {
+            let relId = attrs[attr];
+            if (relId && map.has(relId)) {
+                attrs[attr] = map.get(relId);
+            }
+        }
+    }
+    if (doc[":@"]) {
+        let relIdAttr = tagsWithRelId.get(tagName);
+        if (relIdAttr) {
+            let relId = doc[":@"][relIdAttr];
+            if (relId && map.has(relId)) {
+                doc[":@"][relIdAttr] = map.get(relId);
+            }
+        }
+    }
+    patchRelIds(doc[tagName], map);
 }
 async function copyStyles() {
-    // Load the source and target documents
-    // const sourceDoc = new Document(fs.readFileSync('isp-reference.docx'));
-    let target = await JSZip.loadAsync(fs.readFileSync('main.docx'));
-    let source = await JSZip.loadAsync(fs.readFileSync('isp-reference.docx'));
-    let sourceStylesXML = await source.file("word/styles.xml").async("string");
-    let targetStylesXML = await target.file("word/styles.xml").async("string");
-    let sourceDocXML = await source.file("word/document.xml").async("string");
-    let targetDocXML = await target.file("word/document.xml").async("string");
-    // fs.writeFileSync("source_styles.xml", sourceStyles)
-    // fs.writeFileSync("target_styles.xml", sourceStyles)
-    // fs.writeFileSync("source_document.xml", sourceStyles)
-    // fs.writeFileSync("target_document.xml", sourceStyles)
-    // Parse the source styles
     let parser = new XMLParser({
         ignoreAttributes: false,
         alwaysCreateTextNode: true,
@@ -340,13 +601,36 @@ async function copyStyles() {
         trimValues: false,
         commentPropName: "#comment"
     });
+    let builder = new XMLBuilder({
+        ignoreAttributes: false,
+        alwaysCreateTextNode: true,
+        attributeNamePrefix: "",
+        preserveOrder: true,
+        commentPropName: "#comment"
+    });
+    // Load the source and target documents
+    let target = await JSZip.loadAsync(fs.readFileSync('main.docx'));
+    let source = await JSZip.loadAsync(fs.readFileSync('isp-reference.docx'));
+    let sourceStylesXML = await source.file("word/styles.xml").async("string");
+    let targetStylesXML = await target.file("word/styles.xml").async("string");
+    let sourceDocXML = await source.file("word/document.xml").async("string");
+    let targetDocXML = await target.file("word/document.xml").async("string");
+    let targetContentTypesXML = await target.file("[Content_Types].xml").async("string");
+    let targetDocumentRelsXML = await target.file("word/_rels/document.xml.rels").async("string");
+    let sourceDocumentRelsXML = await source.file("word/_rels/document.xml.rels").async("string");
+    let targetNumberingXML = await source.file("word/numbering.xml").async("string");
+    let metaFile = await fs.promises.readFile("document-metadata.json", "utf-8");
+    let targetContentTypesParsed = parser.parse(targetContentTypesXML);
+    let targetDocumentRelsParsed = parser.parse(targetDocumentRelsXML);
+    let sourceDocumentRelsParsed = parser.parse(sourceDocumentRelsXML);
     let sourceStylesParsed = parser.parse(sourceStylesXML);
     let targetStylesParsed = parser.parse(targetStylesXML);
     let sourceDocParsed = parser.parse(sourceDocXML);
     let targetDocParsed = parser.parse(targetDocXML);
+    let targetNumberingParsed = parser.parse(targetNumberingXML);
+    let metaFileParsed = convertMetaToObject(JSON.parse(metaFile));
     copyLatentStyles(sourceStylesParsed, targetStylesParsed);
     copyDocDefaults(sourceStylesParsed, targetStylesParsed);
-    copySectPr(sourceDocParsed, targetDocParsed);
     let targetStylesNamesToId = getStyleIdsByNameFromDefs(getChildTag(targetStylesParsed, "w:styles")["w:styles"]);
     let sourceStylesNamesToId = getStyleIdsByNameFromDefs(getChildTag(sourceStylesParsed, "w:styles")["w:styles"]);
     let sourceStyleTable = getStyleTable(sourceStylesParsed);
@@ -359,11 +643,15 @@ async function copyStyles() {
         "ispText_main",
         "ispList",
         "ispListing",
-        "ispListing Знак"
+        "ispListing Знак",
+        "ispLitList",
+        "ispPicture_sign",
+        "Normal"
     ].map(name => sourceStylesNamesToId.get(name)));
     let mappingTable = getMappingTable(usedStyles);
-    let extractedDefs = extractStyleDefs(sourceStylesParsed, mappingTable);
-    patchStyleDefs(extractedDefs, mappingTable);
+    patchStyleDefinitions(sourceDocParsed, sourceStylesParsed, mappingTable);
+    patchStyleUseReferences(sourceDocParsed, sourceStylesParsed, mappingTable);
+    let extractedDefs = extractStyleDefs(sourceStylesParsed);
     let extractedStyleIdsByName = getStyleIdsByNameFromDefs(extractedDefs);
     let stylePatch = new Map([
         ["Heading1", extractedStyleIdsByName.get("ispSubHeader-1 level")],
@@ -373,14 +661,12 @@ async function copyStyles() {
         ["AbstractTitle", extractedStyleIdsByName.get("ispAnotation")],
         ["Abstract", extractedStyleIdsByName.get("ispAnotation")],
         ["BlockText", extractedStyleIdsByName.get("ispText_main")],
-        ["DefaultParagraphFont", extractedStyleIdsByName.get("DefaultParagraphFont")],
         ["BodyText", extractedStyleIdsByName.get("ispText_main")],
         ["FirstParagraph", extractedStyleIdsByName.get("ispText_main")],
         ["Normal", extractedStyleIdsByName.get("Normal")],
         ["SourceCode", extractedStyleIdsByName.get("ispListing")],
         ["VerbatimChar", extractedStyleIdsByName.get("ispListing Знак")],
         ["ImageCaption", extractedStyleIdsByName.get("ispPicture_sign")],
-        // ["Compact",                styleIdsByName.get("ispPicture_sign")],
     ]);
     let stylesToRemove = new Set([
         "Heading4",
@@ -406,26 +692,16 @@ async function copyStyles() {
     patchStyleUseReferences(targetDocParsed, targetStylesParsed, stylePatch);
     let patchRules = {
         "OrderedList": { styleName: extractedStyleIdsByName.get("ispNumList"), numId: "33" },
-        "BulletList": { styleName: extractedStyleIdsByName.get("ispList1"), numId: "43" }
+        "BulletList": { styleName: extractedStyleIdsByName.get("ispList1"), numId: "43" },
+        "LitList": { styleName: extractedStyleIdsByName.get("ispLitList"), numId: "80" },
     };
     let newListStyles = applyListStyles(targetDocParsed, patchRules);
-    let targetNumberingXML = await source.file("word/numbering.xml").async("string");
-    let targetNumberingParsed = parser.parse(targetNumberingXML);
+    setXmlns(sourceDocParsed, properDocXmlns);
+    let relMap = transferRels(sourceDocumentRelsParsed, targetDocumentRelsParsed);
+    patchRelIds(sourceDocParsed, relMap);
+    targetDocParsed = replaceTemplates(sourceDocParsed, getDocumentBody(targetDocParsed), metaFileParsed);
+    templateReplaceLinks(getDocumentBody(targetDocParsed), metaFileParsed, patchRules);
     addNewNumberings(targetNumberingParsed, newListStyles);
-    let builder = new XMLBuilder({
-        ignoreAttributes: false,
-        alwaysCreateTextNode: true,
-        attributeNamePrefix: "",
-        preserveOrder: true,
-        commentPropName: "#comment"
-    });
-    let targetContentTypesXML = await target.file("[Content_Types].xml").async("string");
-    let targetContentTypesParsed = parser.parse(targetContentTypesXML);
-    let targetDocumentRelsXML = await target.file("word/_rels/document.xml.rels").async("string");
-    let targetDocumentRelsParsed = parser.parse(targetDocumentRelsXML);
-    let sourceDocumentRelsXML = await source.file("word/_rels/document.xml.rels").async("string");
-    let sourceDocumentRelsParsed = parser.parse(sourceDocumentRelsXML);
-    transferRels(sourceDocumentRelsParsed, targetDocumentRelsParsed);
     addContentType(targetContentTypesParsed, "/word/footer1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
     addContentType(targetContentTypesParsed, "/word/footer2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
     addContentType(targetContentTypesParsed, "/word/footer3.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
@@ -450,7 +726,6 @@ async function copyStyles() {
     await copyFile(source, target, "word/settings.xml");
     await copyFile(source, target, "word/webSettings.xml");
     await copyFile(source, target, "word/media/image1.png");
-    await copyFile(source, target, "word/media/image2.png");
     target.file("word/_rels/document.xml.rels", builder.build(targetDocumentRelsParsed));
     target.file("[Content_Types].xml", builder.build(targetContentTypesParsed));
     target.file("word/numbering.xml", builder.build(targetNumberingParsed));

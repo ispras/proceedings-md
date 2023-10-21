@@ -109,7 +109,14 @@ function getListingCaption(content) {
     return new pandoc.RawBlock("openxml", `<w:p>${builder.build(elements)}</w:p>`);
 }
 
+let metaDumped = false
+
 async function action(element, format, meta) {
+    if(!metaDumped) {
+        metaDumped = true
+        fs.writeFileSync("document-metadata.json", JSON.stringify(meta))
+    }
+
     let type = element.t
     let value = element.c
 
