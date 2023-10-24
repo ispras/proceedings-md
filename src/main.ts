@@ -620,22 +620,30 @@ function clearParagraphContents(paragraph: any): any {
     }
 }
 
-function getSuperscriptTextOption(): any {
+function getSuperscriptTextStyle(): any {
     return {
         "w:vertAlign": [],
         ...getAttributesXml({"w:val": "superscript"})
     }
 }
 
-function getParagraphTextTag(text: string): any {
-    return {
+function getParagraphTextTag(text: string, styles?: any[]): any {
+    let result = {
         "w:r": [
             {
                 "w:t": [getXmlTextTag(text)],
                 ...getAttributesXml({"xml:space": "preserve"})
             }
         ]
-    };
+    }
+
+    if(styles) {
+        result["w:r"].unshift({
+            "w:rPr": styles
+        })
+    }
+
+    return result;
 }
 
 function templateAuthorList(templateBody: any, meta: any) {
@@ -656,12 +664,8 @@ function templateAuthorList(templateBody: any, meta: any) {
             let indexLine = String(authorIndex)
             let authorLine = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">"
 
-            let indexTag = getParagraphTextTag(indexLine)
+            let indexTag = getParagraphTextTag(indexLine, [getSuperscriptTextStyle()])
             let authorTag = getParagraphTextTag(authorLine)
-
-            indexTag["w:r"].unshift({
-                "w:rPr": [getSuperscriptTextOption()]
-            })
 
             newParagraph["w:p"].push(indexTag, authorTag)
             newParagraphs.push(newParagraph)
@@ -685,12 +689,8 @@ function templateAuthorList(templateBody: any, meta: any) {
 
             let indexLine = String(orgIndex)
 
-            let indexTag = getParagraphTextTag(indexLine)
+            let indexTag = getParagraphTextTag(indexLine, [getSuperscriptTextStyle()])
             let organizationTag = getParagraphTextTag(organizationLine)
-
-            indexTag["w:r"].unshift({
-                "w:rPr": [getSuperscriptTextOption()]
-            })
 
             newParagraph["w:p"].push(indexTag, organizationTag)
             newParagraphs.push(newParagraph)
@@ -1056,12 +1056,7 @@ function getImageCaption(content): any {
                     ...getAttributesXml({"w:val": "true"})
                 }]
         },
-        {
-            "w:r": [{
-                "w:t": [getXmlTextTag(getMetaString(content))],
-                ...getAttributesXml({"xml:space": "preserve"})
-            }]
-        }
+        getParagraphTextTag(getMetaString(content))
     ];
 
     return {
@@ -1083,20 +1078,12 @@ function getListingCaption(content): any {
                 },
             ]
         },
-        {
-            "w:r": [
-                {
-                    "w:rPr": [
-                        {"w:i": []},
-                        {"w:iCs": []},
-                        {"w:sz": [], ...getAttributesXml({"w:val": "18"})},
-                        {"w:szCs": [], ...getAttributesXml({"w:val": "18"})},
-                    ]
-                }, {
-                    "w:t": [getXmlTextTag(getMetaString(content))],
-                    ...getAttributesXml({"xml:space": "preserve"})
-                }]
-        }
+        getParagraphTextTag(getMetaString(content), [
+            {"w:i": []},
+            {"w:iCs": []},
+            {"w:sz": [], ...getAttributesXml({"w:val": "18"})},
+            {"w:szCs": [], ...getAttributesXml({"w:val": "18"})},
+        ])
     ];
 
     return {

@@ -533,14 +533,14 @@ function clearParagraphContents(paragraph) {
         }
     }
 }
-function getSuperscriptTextOption() {
+function getSuperscriptTextStyle() {
     return {
         "w:vertAlign": [],
         ...getAttributesXml({ "w:val": "superscript" })
     };
 }
-function getParagraphTextTag(text) {
-    return {
+function getParagraphTextTag(text, styles) {
+    let result = {
         "w:r": [
             {
                 "w:t": [getXmlTextTag(text)],
@@ -548,6 +548,12 @@ function getParagraphTextTag(text) {
             }
         ]
     };
+    if (styles) {
+        result["w:r"].unshift({
+            "w:rPr": styles
+        });
+    }
+    return result;
 }
 function templateAuthorList(templateBody, meta) {
     let authors = meta["ispras_templates"].authors;
@@ -560,11 +566,8 @@ function templateAuthorList(templateBody, meta) {
             clearParagraphContents(newParagraph);
             let indexLine = String(authorIndex);
             let authorLine = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">";
-            let indexTag = getParagraphTextTag(indexLine);
+            let indexTag = getParagraphTextTag(indexLine, [getSuperscriptTextStyle()]);
             let authorTag = getParagraphTextTag(authorLine);
-            indexTag["w:r"].unshift({
-                "w:rPr": [getSuperscriptTextOption()]
-            });
             newParagraph["w:p"].push(indexTag, authorTag);
             newParagraphs.push(newParagraph);
             authorIndex++;
@@ -580,11 +583,8 @@ function templateAuthorList(templateBody, meta) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
             clearParagraphContents(newParagraph);
             let indexLine = String(orgIndex);
-            let indexTag = getParagraphTextTag(indexLine);
+            let indexTag = getParagraphTextTag(indexLine, [getSuperscriptTextStyle()]);
             let organizationTag = getParagraphTextTag(organizationLine);
-            indexTag["w:r"].unshift({
-                "w:rPr": [getSuperscriptTextOption()]
-            });
             newParagraph["w:p"].push(indexTag, organizationTag);
             newParagraphs.push(newParagraph);
             orgIndex++;
@@ -880,12 +880,7 @@ function getImageCaption(content) {
                 }
             ]
         },
-        {
-            "w:r": [{
-                    "w:t": [getXmlTextTag(getMetaString(content))],
-                    ...getAttributesXml({ "xml:space": "preserve" })
-                }]
-        }
+        getParagraphTextTag(getMetaString(content))
     ];
     return {
         t: "RawBlock",
@@ -905,21 +900,12 @@ function getListingCaption(content) {
                 },
             ]
         },
-        {
-            "w:r": [
-                {
-                    "w:rPr": [
-                        { "w:i": [] },
-                        { "w:iCs": [] },
-                        { "w:sz": [], ...getAttributesXml({ "w:val": "18" }) },
-                        { "w:szCs": [], ...getAttributesXml({ "w:val": "18" }) },
-                    ]
-                }, {
-                    "w:t": [getXmlTextTag(getMetaString(content))],
-                    ...getAttributesXml({ "xml:space": "preserve" })
-                }
-            ]
-        }
+        getParagraphTextTag(getMetaString(content), [
+            { "w:i": [] },
+            { "w:iCs": [] },
+            { "w:sz": [], ...getAttributesXml({ "w:val": "18" }) },
+            { "w:szCs": [], ...getAttributesXml({ "w:val": "18" }) },
+        ])
     ];
     return {
         t: "RawBlock",
