@@ -16,6 +16,14 @@ const properDocXmlns = new Map<string, string>([
     ["xmlns:wp", "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"],
 ])
 
+let tagsWithRelId = new Map<string, string>([
+    ["w:headerReference", "r:id"],
+    ["w:footerReference", "r:id"],
+    ["w:hyperlink", "r:id"],
+    ["v:imagedata", "r:id"],
+    ["a:blip", "r:embed"],
+])
+
 const pandocFlags = ["--tab-stop=8"]
 const languages = ["ru", "en"]
 const xmlComment = "__comment__"
@@ -40,7 +48,7 @@ let xmlBuilder = new XMLBuilder({
     textNodeName: xmlText
 })
 
-function getChildTag(styles: any, name: string) {
+function getChildTag(styles: any, name: string): any {
     for (let child of styles) {
         if (child[name]) {
             return child
@@ -48,14 +56,14 @@ function getChildTag(styles: any, name: string) {
     }
 }
 
-function getTagName(tag: any) {
+function getTagName(tag: any): string {
     for (let key of Object.getOwnPropertyNames(tag)) {
         if (key === xmlAttributes) continue
         return key
     }
 }
 
-function getStyleCrossReferences(styles: any) {
+function getStyleCrossReferences(styles: any): any[] {
     let result = []
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"]) continue
@@ -73,7 +81,7 @@ function getStyleCrossReferences(styles: any) {
     return result
 }
 
-function getDocStyleUseReferences(doc: any, result: any[] = [], met = new Set()) {
+function getDocStyleUseReferences(doc: any, result: any[] = [], met = new Set()): any[] {
     if (!doc || typeof doc !== "object" || met.has(doc)) {
         return result
     }
@@ -94,7 +102,7 @@ function getDocStyleUseReferences(doc: any, result: any[] = [], met = new Set())
     return result
 }
 
-function extractStyleDefs(styles: any) {
+function extractStyleDefs(styles: any): any[] {
     let result = []
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"]) continue
@@ -128,7 +136,7 @@ function patchStyleUseReferences(doc: any, styles: any, map: Map<string, string>
     }
 }
 
-function getUsedStyles(doc: any) {
+function getUsedStyles(doc: any): Set<string> {
     let references = getDocStyleUseReferences(doc)
     let set = new Set<string>()
 
@@ -158,7 +166,7 @@ function populateStyles(styles: Set<string>, table: Map<string, any>) {
     }
 }
 
-function getUsedStylesDeep(doc: any, styleTable: Map<string, any>, requiredStyles: string[] = []) {
+function getUsedStylesDeep(doc: any, styleTable: Map<string, any>, requiredStyles: string[] = []): Set<string> {
     let usedStyles = getUsedStyles(doc)
 
     for (let requiredStyle of requiredStyles) {
@@ -174,7 +182,7 @@ function getUsedStylesDeep(doc: any, styleTable: Map<string, any>, requiredStyle
     return usedStyles
 }
 
-function getStyleTable(styles: any) {
+function getStyleTable(styles: any): Map<string, any> {
     let table = new Map<string, any>()
 
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
@@ -185,7 +193,7 @@ function getStyleTable(styles: any) {
     return table
 }
 
-function getStyleIdsByNameFromDefs(styles: any) {
+function getStyleIdsByNameFromDefs(styles: any): Map<string, any> {
     let table = new Map<string, any>()
 
     for (let style of styles) {
@@ -200,13 +208,13 @@ function getStyleIdsByNameFromDefs(styles: any) {
     return table
 }
 
-function addCollisionPatch(mappingTable: Map<string, string>, styleId: string) {
+function addCollisionPatch(mappingTable: Map<string, string>, styleId: string): string {
     let newId = "template-" + mappingTable.size.toString()
     mappingTable.set(styleId, newId)
     return newId
 }
 
-function getMappingTable(usedStyles: Set<string>) {
+function getMappingTable(usedStyles: Set<string>): Map<string, string> {
     let mappingTable = new Map<string, string>
     for (let style of usedStyles) {
         addCollisionPatch(mappingTable, style);
@@ -234,7 +242,7 @@ interface NumIdPatchEntry {
     numId: string
 }
 
-function applyListStyles(doc, styles: ListStyles) {
+function applyListStyles(doc, styles: ListStyles): Map<string, string> {
 
     let stack = []
     let currentState = undefined
@@ -394,7 +402,7 @@ function addContentType(contentTypes, partName, contentType) {
     })
 }
 
-function transferRels(source, target) {
+function transferRels(source, target): Map<string, string> {
     let sourceRels = getChildTag(source, "Relationships")["Relationships"]
     let targetRels = getChildTag(target, "Relationships")["Relationships"]
 
@@ -422,7 +430,7 @@ function transferRels(source, target) {
     return idMap
 }
 
-function getRawText(tag) {
+function getRawText(tag): string {
     let result = ""
     let tagName = getTagName(tag)
 
@@ -439,9 +447,9 @@ function getRawText(tag) {
 }
 
 function replaceInlineTemplate(body: any[], template: string, value: string) {
-    if(value === "@none") {
+    if (value === "@none") {
         let i = findParagraphWithPattern(body, template, 0);
-        for(; i !== null; i = findParagraphWithPattern(body, template, i)) {
+        for (; i !== null; i = findParagraphWithPattern(body, template, i)) {
             body.splice(i, 1)
             i = i - 1;
         }
@@ -467,7 +475,7 @@ function replaceStringTemplate(tag: any, template: string, value: string) {
     }
 }
 
-function getParagraphText(paragraph: any) {
+function getParagraphText(paragraph: any): string {
     let result = ""
 
     if (paragraph["w:t"]) {
@@ -488,7 +496,7 @@ function getParagraphText(paragraph: any) {
     return result
 }
 
-function findParagraphWithPattern(body: any, pattern: string, startIndex: number = 0) {
+function findParagraphWithPattern(body: any, pattern: string, startIndex: number = 0): number | null {
     for (let i = startIndex; i < body.length; i++) {
         let text = getParagraphText(body[i])
         if (text.indexOf(pattern) == -1) {
@@ -500,9 +508,9 @@ function findParagraphWithPattern(body: any, pattern: string, startIndex: number
     return null
 }
 
-function findParagraphWithPatternStrict(body: any, pattern: string, startIndex: number = 0) {
+function findParagraphWithPatternStrict(body: any, pattern: string, startIndex: number = 0): number | null {
     let paragraphIndex = findParagraphWithPattern(body, pattern, startIndex)
-    if(paragraphIndex === null) {
+    if (paragraphIndex === null) {
         throw new Error(`The template document should have pattern ${pattern}`)
     }
 
@@ -514,12 +522,12 @@ function findParagraphWithPatternStrict(body: any, pattern: string, startIndex: 
     return paragraphIndex
 }
 
-function getDocumentBody(document: any) {
+function getDocumentBody(document: any): any {
     let documentTag = getChildTag(document, "w:document")["w:document"]
     return getChildTag(documentTag, "w:body")["w:body"]
 }
 
-function getMetaString(value: any) {
+function getMetaString(value: any): string {
     if (Array.isArray(value)) {
         let result = ""
         for (let component of value) {
@@ -554,7 +562,7 @@ function getMetaString(value: any) {
     return getMetaString(value.c)
 }
 
-function convertMetaToJsonRecursive(meta: any) {
+function convertMetaToJsonRecursive(meta: any): any{
     if (meta.t === "MetaList") {
         return meta.c.map((element) => {
             return convertMetaToJsonRecursive(element)
@@ -574,7 +582,7 @@ function convertMetaToJsonRecursive(meta: any) {
     }
 }
 
-function convertMetaToObject(meta: any) {
+function convertMetaToObject(meta: any): any {
     let result = {}
     for (let key of Object.getOwnPropertyNames(meta)) {
         result[key] = convertMetaToJsonRecursive(meta[key])
@@ -588,19 +596,19 @@ function templateReplaceBodyContents(templateBody: any, body: any) {
     templateBody.splice(paragraphIndex, 1, ...body)
 }
 
-function getXmlTextTag(text: string) {
+function getXmlTextTag(text: string): any {
     let result = {};
     result[xmlText] = text
     return result
 }
 
-function getAttributesXml(attributes: any) {
+function getAttributesXml(attributes: any): any {
     let result = {}
     result[xmlAttributes] = attributes
     return result
 }
 
-function replaceParagraphContents(paragraph: any, text: string) {
+function clearParagraphContents(paragraph: any): any {
     let contents = paragraph["w:p"]
 
     for (let i = 0; i < contents.length; i++) {
@@ -610,14 +618,24 @@ function replaceParagraphContents(paragraph: any, text: string) {
             i--
         }
     }
-    contents.push({
+}
+
+function getSuperscriptTextOption(): any {
+    return {
+        "w:vertAlign": [],
+        ...getAttributesXml({"w:val": "superscript"})
+    }
+}
+
+function getParagraphTextTag(text: string): any {
+    return {
         "w:r": [
             {
                 "w:t": [getXmlTextTag(text)],
                 ...getAttributesXml({"xml:space": "preserve"})
             }
         ]
-    })
+    };
 }
 
 function templateAuthorList(templateBody: any, meta: any) {
@@ -629,13 +647,26 @@ function templateAuthorList(templateBody: any, meta: any) {
 
         let newParagraphs = []
 
+        let authorIndex = 1;
+
         for (let author of authors) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]))
+            clearParagraphContents(newParagraph)
 
-            let line = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">"
+            let indexLine = String(authorIndex)
+            let authorLine = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">"
 
-            replaceParagraphContents(newParagraph, line)
+            let indexTag = getParagraphTextTag(indexLine)
+            let authorTag = getParagraphTextTag(authorLine)
+
+            indexTag["w:r"].unshift({
+                "w:rPr": [getSuperscriptTextOption()]
+            })
+
+            newParagraph["w:p"].push(indexTag, authorTag)
             newParagraphs.push(newParagraph)
+
+            authorIndex++
         }
 
         templateBody.splice(paragraphIndex, 1, ...newParagraphs)
@@ -646,18 +677,32 @@ function templateAuthorList(templateBody: any, meta: any) {
         let organizations = meta["ispras_templates"]["organizations_" + language]
 
         let newParagraphs = []
+        let orgIndex = 1
 
-        for (let organization of organizations) {
+        for (let organizationLine of organizations) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]))
-            replaceParagraphContents(newParagraph, organization)
+            clearParagraphContents(newParagraph)
+
+            let indexLine = String(orgIndex)
+
+            let indexTag = getParagraphTextTag(indexLine)
+            let organizationTag = getParagraphTextTag(organizationLine)
+
+            indexTag["w:r"].unshift({
+                "w:rPr": [getSuperscriptTextOption()]
+            })
+
+            newParagraph["w:p"].push(indexTag, organizationTag)
             newParagraphs.push(newParagraph)
+
+            orgIndex++
         }
 
         templateBody.splice(paragraphIndex, 1, ...newParagraphs)
     }
 }
 
-function getParagraphWithStyle(style: string) {
+function getParagraphWithStyle(style: string): any {
     return {
         "w:p": [{
             "w:pPr": [{
@@ -668,7 +713,7 @@ function getParagraphWithStyle(style: string) {
     };
 }
 
-function getNumPr(ilvl: string, numId: string) {
+function getNumPr(ilvl: string, numId: string): any {
     // <w:numPr>
     //    <w:ilvl w:val="<ilvl>"/>
     //    <w:numId w:val="<numId>"/>
@@ -694,10 +739,10 @@ function templateReplaceLinks(templateBody: any, meta: any, listRules: any) {
 
     for (let link of links) {
         let newParagraph = getParagraphWithStyle(litListRule.styleName)
-        let style = getChildTag(newParagraph["w:p"], "w:pPr")["w:pPr"]
-        style.push(getNumPr("0", litListRule.numId))
+        let style = getChildTag(newParagraph["w:p"], "w:pPr")
+        style["w:pPr"].push(getNumPr("0", litListRule.numId))
 
-        replaceParagraphContents(newParagraph, link)
+        newParagraph["w:p"].push(getParagraphTextTag(link))
         newParagraphs.push(newParagraph)
     }
 
@@ -716,7 +761,8 @@ function templateReplaceAuthorsDetail(templateBody: any, meta: any) {
 
             let line = author["details_" + language]
 
-            replaceParagraphContents(newParagraph, line)
+            clearParagraphContents(newParagraph)
+            newParagraph["w:p"].push(getParagraphTextTag(line))
             newParagraphs.push(newParagraph)
         }
     }
@@ -724,7 +770,7 @@ function templateReplaceAuthorsDetail(templateBody: any, meta: any) {
     templateBody.splice(paragraphIndex, 1, ...newParagraphs)
 }
 
-function replacePageHeaders(headers: any[], meta: any) {
+function replacePageHeaders(headers: any[], meta: any): any {
     let header_ru = meta["ispras_templates"].page_header_ru
     let header_en = meta["ispras_templates"].page_header_en
 
@@ -742,7 +788,7 @@ function replacePageHeaders(headers: any[], meta: any) {
     }
 }
 
-function replaceTemplates(template: any, body: any, meta: any) {
+function replaceTemplates(template: any, body: any, meta: any): any {
     let templateCopy = JSON.parse(JSON.stringify(template))
 
     let templateBody = getDocumentBody(templateCopy)
@@ -772,14 +818,6 @@ function setXmlns(xml: any, xmlns: Map<string, string>) {
         documentTag[xmlAttributes][key] = value
     }
 }
-
-let tagsWithRelId = new Map<string, string>([
-    ["w:headerReference", "r:id"],
-    ["w:footerReference", "r:id"],
-    ["w:hyperlink", "r:id"],
-    ["v:imagedata", "r:id"],
-    ["a:blip", "r:embed"],
-])
 
 function patchRelIds(doc: any, map: Map<string, string>) {
     if (Array.isArray(doc)) {
@@ -815,7 +853,7 @@ function patchRelIds(doc: any, map: Map<string, string>) {
     patchRelIds(doc[tagName], map)
 }
 
-async function fixDocxStyles(sourcePath, targetPath, meta) {
+async function fixDocxStyles(sourcePath, targetPath, meta): Promise<void> {
     let resourcesDir = path.dirname(process.argv[1]) + "/../resources"
 
     // Load the source and target documents
@@ -980,7 +1018,7 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
     fs.writeFileSync(targetPath, await target.generateAsync({type: "uint8array"}));
 }
 
-function fixCompactLists(list) {
+function fixCompactLists(list): any[] {
     // For compact list, 'para' is replaced with 'plain'.
     // Compact lists were not mentioned in the
     // guidelines, so get rid of them
@@ -1006,7 +1044,7 @@ function fixCompactLists(list) {
     ]
 }
 
-function getImageCaption(content) {
+function getImageCaption(content): any {
     let elements = [
         {
             "w:pPr": [
@@ -1032,7 +1070,7 @@ function getImageCaption(content) {
     };
 }
 
-function getListingCaption(content) {
+function getListingCaption(content): any {
     let elements = [
         {
             "w:pPr": [
@@ -1067,7 +1105,7 @@ function getListingCaption(content) {
     };
 }
 
-function getPatchedMetaElement(element) {
+function getPatchedMetaElement(element): any {
     if (Array.isArray(element)) {
         let newArray = []
 
@@ -1145,7 +1183,7 @@ function pandoc(src, args): Promise<string> {
     })
 }
 
-async function generatePandocDocx(source: string, target: string) {
+async function generatePandocDocx(source: string, target: string): Promise<any> {
     let markdown = await fs.promises.readFile(source, "utf-8")
 
     let meta = await pandoc(markdown, ["-f", "markdown", "-t", "json", ...pandocFlags])
@@ -1158,7 +1196,7 @@ async function generatePandocDocx(source: string, target: string) {
     return convertMetaToObject(metaParsed.meta)
 }
 
-async function main() {
+async function main(): Promise<void> {
     let argv = process.argv
     if (argv.length < 4) {
         console.log("Usage: main.js <source> <target>")

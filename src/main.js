@@ -39,6 +39,13 @@ const properDocXmlns = new Map([
     ["xmlns:pic", "http://schemas.openxmlformats.org/drawingml/2006/picture"],
     ["xmlns:wp", "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"],
 ]);
+let tagsWithRelId = new Map([
+    ["w:headerReference", "r:id"],
+    ["w:footerReference", "r:id"],
+    ["w:hyperlink", "r:id"],
+    ["v:imagedata", "r:id"],
+    ["a:blip", "r:embed"],
+]);
 const pandocFlags = ["--tab-stop=8"];
 const languages = ["ru", "en"];
 const xmlComment = "__comment__";
@@ -516,7 +523,7 @@ function getAttributesXml(attributes) {
     result[xmlAttributes] = attributes;
     return result;
 }
-function replaceParagraphContents(paragraph, text) {
+function clearParagraphContents(paragraph) {
     let contents = paragraph["w:p"];
     for (let i = 0; i < contents.length; i++) {
         let tagName = getTagName(contents[i]);
@@ -525,25 +532,42 @@ function replaceParagraphContents(paragraph, text) {
             i--;
         }
     }
-    contents.push({
+}
+function getSuperscriptTextOption() {
+    return {
+        "w:vertAlign": [],
+        ...getAttributesXml({ "w:val": "superscript" })
+    };
+}
+function getParagraphTextTag(text) {
+    return {
         "w:r": [
             {
                 "w:t": [getXmlTextTag(text)],
                 ...getAttributesXml({ "xml:space": "preserve" })
             }
         ]
-    });
+    };
 }
 function templateAuthorList(templateBody, meta) {
     let authors = meta["ispras_templates"].authors;
     for (let language of languages) {
         let paragraphIndex = findParagraphWithPatternStrict(templateBody, `{{{authors_${language}}}}`);
         let newParagraphs = [];
+        let authorIndex = 1;
         for (let author of authors) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
-            let line = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">";
-            replaceParagraphContents(newParagraph, line);
+            clearParagraphContents(newParagraph);
+            let indexLine = String(authorIndex);
+            let authorLine = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">";
+            let indexTag = getParagraphTextTag(indexLine);
+            let authorTag = getParagraphTextTag(authorLine);
+            indexTag["w:r"].unshift({
+                "w:rPr": [getSuperscriptTextOption()]
+            });
+            newParagraph["w:p"].push(indexTag, authorTag);
             newParagraphs.push(newParagraph);
+            authorIndex++;
         }
         templateBody.splice(paragraphIndex, 1, ...newParagraphs);
     }
@@ -551,10 +575,19 @@ function templateAuthorList(templateBody, meta) {
         let paragraphIndex = findParagraphWithPatternStrict(templateBody, `{{{organizations_${language}}}}`);
         let organizations = meta["ispras_templates"]["organizations_" + language];
         let newParagraphs = [];
-        for (let organization of organizations) {
+        let orgIndex = 1;
+        for (let organizationLine of organizations) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
-            replaceParagraphContents(newParagraph, organization);
+            clearParagraphContents(newParagraph);
+            let indexLine = String(orgIndex);
+            let indexTag = getParagraphTextTag(indexLine);
+            let organizationTag = getParagraphTextTag(organizationLine);
+            indexTag["w:r"].unshift({
+                "w:rPr": [getSuperscriptTextOption()]
+            });
+            newParagraph["w:p"].push(indexTag, organizationTag);
             newParagraphs.push(newParagraph);
+            orgIndex++;
         }
         templateBody.splice(paragraphIndex, 1, ...newParagraphs);
     }
@@ -591,9 +624,9 @@ function templateReplaceLinks(templateBody, meta, listRules) {
     let newParagraphs = [];
     for (let link of links) {
         let newParagraph = getParagraphWithStyle(litListRule.styleName);
-        let style = getChildTag(newParagraph["w:p"], "w:pPr")["w:pPr"];
-        style.push(getNumPr("0", litListRule.numId));
-        replaceParagraphContents(newParagraph, link);
+        let style = getChildTag(newParagraph["w:p"], "w:pPr");
+        style["w:pPr"].push(getNumPr("0", litListRule.numId));
+        newParagraph["w:p"].push(getParagraphTextTag(link));
         newParagraphs.push(newParagraph);
     }
     templateBody.splice(paragraphIndex, 1, ...newParagraphs);
@@ -606,7 +639,8 @@ function templateReplaceAuthorsDetail(templateBody, meta) {
         for (let language of languages) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
             let line = author["details_" + language];
-            replaceParagraphContents(newParagraph, line);
+            clearParagraphContents(newParagraph);
+            newParagraph["w:p"].push(getParagraphTextTag(line));
             newParagraphs.push(newParagraph);
         }
     }
@@ -648,13 +682,6 @@ function setXmlns(xml, xmlns) {
         documentTag[xmlAttributes][key] = value;
     }
 }
-let tagsWithRelId = new Map([
-    ["w:headerReference", "r:id"],
-    ["w:footerReference", "r:id"],
-    ["w:hyperlink", "r:id"],
-    ["v:imagedata", "r:id"],
-    ["a:blip", "r:embed"],
-]);
 function patchRelIds(doc, map) {
     if (Array.isArray(doc)) {
         for (let child of doc) {
