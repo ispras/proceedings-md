@@ -39,6 +39,7 @@ const properDocXmlns = new Map([
     ["xmlns:pic", "http://schemas.openxmlformats.org/drawingml/2006/picture"],
     ["xmlns:wp", "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"],
 ]);
+const pandocFlags = ["--tab-stop=8"];
 const languages = ["ru", "en"];
 function getChildTag(styles, name) {
     for (let child of styles) {
@@ -960,7 +961,7 @@ function pandoc(src, args) {
 }
 async function generatePandocDocx(source, target) {
     let markdown = await fs.promises.readFile(source, "utf-8");
-    let meta = await pandoc(markdown, ["-f", "markdown", "-t", "json"]);
+    let meta = await pandoc(markdown, ["-f", "markdown", "-t", "json", ...pandocFlags]);
     let metaParsed = JSON.parse(meta);
     metaParsed.blocks = getPatchedMetaElement(metaParsed.blocks);
     await pandoc(JSON.stringify(metaParsed), ["-f", "json", "-t", "docx", "-o", target]);
