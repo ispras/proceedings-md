@@ -41,22 +41,24 @@ const properDocXmlns = new Map([
 ]);
 const pandocFlags = ["--tab-stop=8"];
 const languages = ["ru", "en"];
-const xmlAttributes = "__attributes__";
+const xmlComment = "__comment__";
+const xmlText = "__text__";
+const xmlAttributes = ":@";
 const xmlParser = new fast_xml_parser_1.XMLParser({
     ignoreAttributes: false,
     alwaysCreateTextNode: true,
     attributeNamePrefix: "",
     preserveOrder: true,
     trimValues: false,
-    commentPropName: "#comment",
-    attributesGroupName: xmlAttributes
+    commentPropName: xmlComment,
+    textNodeName: xmlText
 });
 let xmlBuilder = new fast_xml_parser_1.XMLBuilder({
     ignoreAttributes: false,
     attributeNamePrefix: "",
     preserveOrder: true,
-    commentPropName: "#comment",
-    attributesGroupName: xmlAttributes
+    commentPropName: xmlComment,
+    textNodeName: xmlText
 });
 function getChildTag(styles, name) {
     for (let child of styles) {
@@ -236,14 +238,14 @@ function applyListStyles(doc, styles) {
                 }
                 doc[key].unshift({
                     "w:pStyle": {},
-                    xmlAttributes: { "w:val": styles[currentState.listStyle].styleName }
+                    ...getAttributesXml({ "w:val": styles[currentState.listStyle].styleName })
                 });
             }
             if (key === "w:numId" && currentState) {
                 doc[xmlAttributes]["w:val"] = String(currentState.numId);
             }
-            if (key === "#comment") {
-                let commentValue = doc[key][0]["#text"];
+            if (key === xmlComment) {
+                let commentValue = doc[key][0][xmlText];
                 // Switch between ordered list and bullet list
                 // if comment is detected
                 if (commentValue.indexOf("ListMode OrderedList") != -1) {
@@ -316,25 +318,17 @@ function addNewNumberings(targetNumberingParsed, newListStyles) {
             overrides.push({
                 "w:lvlOverride": [{
                         "w:startOverride": [],
-                        xmlAttributes: {
-                            "w:val": "1"
-                        }
+                        ...getAttributesXml({ "w:val": "1" })
                     }],
-                xmlAttributes: {
-                    "w:ilvl": String(i)
-                }
+                ...getAttributesXml({ "w:ilvl": String(i) })
             });
         }
         numberingTag.push({
             "w:num": [{
                     "w:abstractNumId": [],
-                    xmlAttributes: {
-                        "w:val": oldNum
-                    }
+                    ...getAttributesXml({ "w:val": oldNum })
                 }, ...overrides],
-            xmlAttributes: {
-                "w:numId": newNum
-            }
+            ...getAttributesXml({ "w:numId": newNum })
         });
     }
 }
@@ -342,10 +336,10 @@ function addContentType(contentTypes, partName, contentType) {
     let typesTag = getChildTag(contentTypes, "Types")["Types"];
     typesTag.push({
         "Override": [],
-        xmlAttributes: {
+        ...getAttributesXml({
             "PartName": partName,
             "ContentType": contentType
-        }
+        })
     });
 }
 function transferRels(source, target) {
@@ -374,8 +368,8 @@ function transferRels(source, target) {
 function getRawText(tag) {
     let result = "";
     let tagName = getTagName(tag);
-    if (tagName === "#text") {
-        result += tag["#text"];
+    if (tagName === xmlText) {
+        result += tag[xmlText];
     }
     if (Array.isArray(tag[tagName])) {
         for (let child of tag[tagName]) {
@@ -383,6 +377,18 @@ function getRawText(tag) {
         }
     }
     return result;
+}
+function replaceInlineTemplate(body, template, value) {
+    if (value === "@none") {
+        let i = findParagraphWithPattern(body, template, 0);
+        for (; i !== null; i = findParagraphWithPattern(body, template, i)) {
+            body.splice(i, 1);
+            i = i - 1;
+        }
+    }
+    else {
+        replaceStringTemplate(body, template, value);
+    }
 }
 function replaceStringTemplate(tag, template, value) {
     if (Array.isArray(tag)) {
@@ -392,8 +398,8 @@ function replaceStringTemplate(tag, template, value) {
         return;
     }
     let tagName = getTagName(tag);
-    if (tagName === "#text") {
-        tag["#text"] = String(tag["#text"]).replace(template, value);
+    if (tagName === xmlText) {
+        tag[xmlText] = String(tag[xmlText]).replace(template, value);
     }
     else if (typeof tag[tagName] === "object") {
         replaceStringTemplate(tag[tagName], template, value);
@@ -416,18 +422,26 @@ function getParagraphText(paragraph) {
     }
     return result;
 }
-function findParagraphWithPattern(body, pattern) {
-    for (let i = 0; i < body.length; i++) {
+function findParagraphWithPattern(body, pattern, startIndex = 0) {
+    for (let i = startIndex; i < body.length; i++) {
         let text = getParagraphText(body[i]);
         if (text.indexOf(pattern) == -1) {
             continue;
         }
-        if (text != pattern) {
-            throw new Error(`The ${pattern} pattern should be the only text of the paragraph`);
-        }
         return i;
     }
     return null;
+}
+function findParagraphWithPatternStrict(body, pattern, startIndex = 0) {
+    let paragraphIndex = findParagraphWithPattern(body, pattern, startIndex);
+    if (paragraphIndex === null) {
+        throw new Error(`The template document should have pattern ${pattern}`);
+    }
+    let text = getParagraphText(body[paragraphIndex]);
+    if (text != pattern) {
+        throw new Error(`The ${pattern} pattern should be the only text of the paragraph`);
+    }
+    return paragraphIndex;
 }
 function getDocumentBody(document) {
     let documentTag = getChildTag(document, "w:document")["w:document"];
@@ -489,8 +503,18 @@ function convertMetaToObject(meta) {
     return result;
 }
 function templateReplaceBodyContents(templateBody, body) {
-    let paragraphIndex = findParagraphWithPattern(templateBody, "{{{body}}}");
+    let paragraphIndex = findParagraphWithPatternStrict(templateBody, "{{{body}}}");
     templateBody.splice(paragraphIndex, 1, ...body);
+}
+function getXmlTextTag(text) {
+    let result = {};
+    result[xmlText] = text;
+    return result;
+}
+function getAttributesXml(attributes) {
+    let result = {};
+    result[xmlAttributes] = attributes;
+    return result;
 }
 function replaceParagraphContents(paragraph, text) {
     let contents = paragraph["w:p"];
@@ -504,12 +528,8 @@ function replaceParagraphContents(paragraph, text) {
     contents.push({
         "w:r": [
             {
-                "w:t": [{
-                        "#text": text
-                    }],
-                xmlAttributes: {
-                    "xml:space": "preserve"
-                }
+                "w:t": [getXmlTextTag(text)],
+                ...getAttributesXml({ "xml:space": "preserve" })
             }
         ]
     });
@@ -517,7 +537,7 @@ function replaceParagraphContents(paragraph, text) {
 function templateAuthorList(templateBody, meta) {
     let authors = meta["ispras_templates"].authors;
     for (let language of languages) {
-        let paragraphIndex = findParagraphWithPattern(templateBody, `{{{authors_${language}}}}`);
+        let paragraphIndex = findParagraphWithPatternStrict(templateBody, `{{{authors_${language}}}}`);
         let newParagraphs = [];
         for (let author of authors) {
             let newParagraph = JSON.parse(JSON.stringify(templateBody[paragraphIndex]));
@@ -528,7 +548,7 @@ function templateAuthorList(templateBody, meta) {
         templateBody.splice(paragraphIndex, 1, ...newParagraphs);
     }
     for (let language of languages) {
-        let paragraphIndex = findParagraphWithPattern(templateBody, `{{{organizations_${language}}}}`);
+        let paragraphIndex = findParagraphWithPatternStrict(templateBody, `{{{organizations_${language}}}}`);
         let organizations = meta["ispras_templates"]["organizations_" + language];
         let newParagraphs = [];
         for (let organization of organizations) {
@@ -544,9 +564,7 @@ function getParagraphWithStyle(style) {
         "w:p": [{
                 "w:pPr": [{
                         "w:pStyle": [],
-                        xmlAttributes: {
-                            "w:val": style
-                        }
+                        ...getAttributesXml({ "w:val": style })
                     }]
             }]
     };
@@ -559,16 +577,16 @@ function getNumPr(ilvl, numId) {
     return {
         "w:numPr": [{
                 "w:ilvl": [],
-                xmlAttributes: { "w:val": "0" }
+                ...getAttributesXml({ "w:val": "0" })
             }, {
                 "w:numId": [],
-                xmlAttributes: { "w:val": numId }
+                ...getAttributesXml({ "w:val": numId })
             }]
     };
 }
 function templateReplaceLinks(templateBody, meta, listRules) {
     let litListRule = listRules["LitList"];
-    let paragraphIndex = findParagraphWithPattern(templateBody, "{{{links}}}");
+    let paragraphIndex = findParagraphWithPatternStrict(templateBody, "{{{links}}}");
     let links = meta["ispras_templates"].links;
     let newParagraphs = [];
     for (let link of links) {
@@ -581,7 +599,7 @@ function templateReplaceLinks(templateBody, meta, listRules) {
     templateBody.splice(paragraphIndex, 1, ...newParagraphs);
 }
 function templateReplaceAuthorsDetail(templateBody, meta) {
-    let paragraphIndex = findParagraphWithPattern(templateBody, "{{{authors_detail}}}");
+    let paragraphIndex = findParagraphWithPatternStrict(templateBody, "{{{authors_detail}}}");
     let authors = meta["ispras_templates"].authors;
     let newParagraphs = [];
     for (let author of authors) {
@@ -604,8 +622,8 @@ function replacePageHeaders(headers, meta) {
         header_en = meta["ispras_templates"].for_citation_en;
     }
     for (let header of headers) {
-        replaceStringTemplate(header, `{{{page_header_ru}}}`, header_ru);
-        replaceStringTemplate(header, `{{{page_header_en}}}`, header_en);
+        replaceInlineTemplate(header, `{{{page_header_ru}}}`, header_ru);
+        replaceInlineTemplate(header, `{{{page_header_en}}}`, header_en);
     }
 }
 function replaceTemplates(template, body, meta) {
@@ -618,7 +636,7 @@ function replaceTemplates(template, body, meta) {
         for (let language of languages) {
             let template_lang = template + "_" + language;
             let value = meta["ispras_templates"][template_lang];
-            replaceStringTemplate(templateBody, `{{{${template_lang}}}}`, value);
+            replaceInlineTemplate(templateBody, `{{{${template_lang}}}}`, value);
         }
     }
     templateReplaceAuthorsDetail(templateBody, meta);
@@ -828,23 +846,17 @@ function getImageCaption(content) {
             "w:pPr": [
                 {
                     "w:pStyle": [],
-                    xmlAttributes: { "w:val": "ImageCaption" }
+                    ...getAttributesXml({ "w:val": "ImageCaption" })
                 }, {
                     "w:contextualSpacing": [],
-                    xmlAttributes: {
-                        "w:val": "true"
-                    }
+                    ...getAttributesXml({ "w:val": "true" })
                 }
             ]
         },
         {
             "w:r": [{
-                    "w:t": [{
-                            "#text": getMetaString(content)
-                        }],
-                    xmlAttributes: {
-                        "xml:space": "preserve"
-                    }
+                    "w:t": [getXmlTextTag(getMetaString(content))],
+                    ...getAttributesXml({ "xml:space": "preserve" })
                 }]
         }
     ];
@@ -859,10 +871,10 @@ function getListingCaption(content) {
             "w:pPr": [
                 {
                     "w:pStyle": [],
-                    xmlAttributes: { "w:val": "BodyText" }
+                    ...getAttributesXml({ "w:val": "BodyText" })
                 }, {
                     "w:jc": [],
-                    xmlAttributes: { "w:val": "left" }
+                    ...getAttributesXml({ "w:val": "left" })
                 },
             ]
         },
@@ -872,17 +884,12 @@ function getListingCaption(content) {
                     "w:rPr": [
                         { "w:i": [] },
                         { "w:iCs": [] },
-                        { "w:sz": [], xmlAttributes: { "w:val": "18" } },
-                        { "w:szCs": [], xmlAttributes: { "w:val": "18" } },
+                        { "w:sz": [], ...getAttributesXml({ "w:val": "18" }) },
+                        { "w:szCs": [], ...getAttributesXml({ "w:val": "18" }) },
                     ]
                 }, {
-                    "w:t": [{
-                            "#text": getMetaString(content)
-                        }
-                    ],
-                    xmlAttributes: {
-                        "xml:space": "preserve"
-                    }
+                    "w:t": [getXmlTextTag(getMetaString(content))],
+                    ...getAttributesXml({ "xml:space": "preserve" })
                 }
             ]
         }

@@ -105,6 +105,12 @@ ispras_templates:
     аннотации, структура которых повторяет структуру статьи и включает в
     сжатой форме введение, цели и задачи, методы, результаты и заключение
 
+
+  # To remove paragraphs with unnecessary patterns, @none flag can be used.
+    
+  # keywords_ru: '@none'
+  # keywords_en: '@none' 
+
   keywords_ru: 'cписок ключевых слов, разделенных точкой с запятой.'
   keywords_en: 'ключевые слова на английском языке'
 
