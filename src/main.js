@@ -41,6 +41,23 @@ const properDocXmlns = new Map([
 ]);
 const pandocFlags = ["--tab-stop=8"];
 const languages = ["ru", "en"];
+const xmlAttributes = "__attributes__";
+const xmlParser = new fast_xml_parser_1.XMLParser({
+    ignoreAttributes: false,
+    alwaysCreateTextNode: true,
+    attributeNamePrefix: "",
+    preserveOrder: true,
+    trimValues: false,
+    commentPropName: "#comment",
+    attributesGroupName: xmlAttributes
+});
+let xmlBuilder = new fast_xml_parser_1.XMLBuilder({
+    ignoreAttributes: false,
+    attributeNamePrefix: "",
+    preserveOrder: true,
+    commentPropName: "#comment",
+    attributesGroupName: xmlAttributes
+});
 function getChildTag(styles, name) {
     for (let child of styles) {
         if (child[name]) {
@@ -50,7 +67,7 @@ function getChildTag(styles, name) {
 }
 function getTagName(tag) {
     for (let key of Object.getOwnPropertyNames(tag)) {
-        if (key === ":@")
+        if (key === xmlAttributes)
             continue;
         return key;
     }
@@ -60,16 +77,16 @@ function getStyleCrossReferences(styles) {
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"])
             continue;
-        result.push(style[":@"]);
+        result.push(style[xmlAttributes]);
         let basedOnTag = getChildTag(style["w:style"], "w:basedOn");
         if (basedOnTag)
-            result.push(basedOnTag[":@"]);
+            result.push(basedOnTag[xmlAttributes]);
         let linkTag = getChildTag(style["w:style"], "w:link");
         if (linkTag)
-            result.push(linkTag[":@"]);
+            result.push(linkTag[xmlAttributes]);
         let nextTag = getChildTag(style["w:style"], "w:next");
         if (nextTag)
-            result.push(nextTag[":@"]);
+            result.push(nextTag[xmlAttributes]);
     }
     return result;
 }
@@ -85,7 +102,7 @@ function getDocStyleUseReferences(doc, result = [], met = new Set()) {
     }
     let tagName = getTagName(doc);
     if (tagName === "w:pStyle" || tagName == "w:rStyle") {
-        result.push(doc[":@"]);
+        result.push(doc[xmlAttributes]);
     }
     result = getDocStyleUseReferences(doc[tagName], result, met);
     return result;
@@ -95,7 +112,7 @@ function extractStyleDefs(styles) {
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"])
             continue;
-        if (style[":@"]["w:styleId"].startsWith("template-")) {
+        if (style[xmlAttributes]["w:styleId"].startsWith("template-")) {
             let copy = JSON.parse(JSON.stringify(style));
             result.push(copy);
         }
@@ -135,13 +152,13 @@ function populateStyles(styles, table) {
         }
         let basedOnTag = getChildTag(style["w:style"], "w:basedOn");
         if (basedOnTag)
-            styles.add(basedOnTag[":@"]["w:val"]);
+            styles.add(basedOnTag[xmlAttributes]["w:val"]);
         let linkTag = getChildTag(style["w:style"], "w:link");
         if (linkTag)
-            styles.add(linkTag[":@"]["w:val"]);
+            styles.add(linkTag[xmlAttributes]["w:val"]);
         let nextTag = getChildTag(style["w:style"], "w:next");
         if (nextTag)
-            styles.add(nextTag[":@"]["w:val"]);
+            styles.add(nextTag[xmlAttributes]["w:val"]);
     }
 }
 function getUsedStylesDeep(doc, styleTable, requiredStyles = []) {
@@ -162,7 +179,7 @@ function getStyleTable(styles) {
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"])
             continue;
-        table.set(style[":@"]["w:styleId"], style);
+        table.set(style[xmlAttributes]["w:styleId"], style);
     }
     return table;
 }
@@ -173,7 +190,7 @@ function getStyleIdsByNameFromDefs(styles) {
             continue;
         let nameNode = getChildTag(style["w:style"], "w:name");
         if (nameNode) {
-            table.set(nameNode[":@"]["w:val"], style[":@"]["w:styleId"]);
+            table.set(nameNode[xmlAttributes]["w:val"], style[xmlAttributes]["w:styleId"]);
         }
     }
     return table;
@@ -219,11 +236,11 @@ function applyListStyles(doc, styles) {
                 }
                 doc[key].unshift({
                     "w:pStyle": {},
-                    ":@": { "w:val": styles[currentState.listStyle].styleName }
+                    xmlAttributes: { "w:val": styles[currentState.listStyle].styleName }
                 });
             }
             if (key === "w:numId" && currentState) {
-                doc[":@"]["w:val"] = String(currentState.numId);
+                doc[xmlAttributes]["w:val"] = String(currentState.numId);
             }
             if (key === "#comment") {
                 let commentValue = doc[key][0]["#text"];
@@ -259,7 +276,7 @@ function removeCollidedStyles(styles, collisions) {
     let ignored = 0;
     let newContents = [];
     for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
-        if (!style["w:style"] || !collisions.has(style[":@"]["w:styleId"])) {
+        if (!style["w:style"] || !collisions.has(style[xmlAttributes]["w:styleId"])) {
             newContents.push(style);
         }
     }
@@ -271,8 +288,8 @@ function copyLatentStyles(source, target) {
     let sourceLatentStyles = getChildTag(sourceStyles, "w:latentStyles");
     let targetLatentStyles = getChildTag(targetStyles, "w:latentStyles");
     targetLatentStyles["w:latentStyles"] = JSON.parse(JSON.stringify(sourceLatentStyles["w:latentStyles"]));
-    if (targetLatentStyles[":@"]) {
-        targetLatentStyles[":@"] = JSON.parse(JSON.stringify(sourceLatentStyles[":@"]));
+    if (targetLatentStyles[xmlAttributes]) {
+        targetLatentStyles[xmlAttributes] = JSON.parse(JSON.stringify(sourceLatentStyles[xmlAttributes]));
     }
 }
 function copyDocDefaults(source, target) {
@@ -281,8 +298,8 @@ function copyDocDefaults(source, target) {
     let sourceDocDefaults = getChildTag(sourceStyles, "w:docDefaults");
     let targetDocDefaults = getChildTag(targetStyles, "w:docDefaults");
     targetDocDefaults["w:docDefaults"] = JSON.parse(JSON.stringify(sourceDocDefaults["w:docDefaults"]));
-    if (sourceDocDefaults[":@"]) {
-        targetDocDefaults[":@"] = JSON.parse(JSON.stringify(sourceDocDefaults[":@"]));
+    if (sourceDocDefaults[xmlAttributes]) {
+        targetDocDefaults[xmlAttributes] = JSON.parse(JSON.stringify(sourceDocDefaults[xmlAttributes]));
     }
 }
 async function copyFile(source, target, path) {
@@ -299,11 +316,11 @@ function addNewNumberings(targetNumberingParsed, newListStyles) {
             overrides.push({
                 "w:lvlOverride": [{
                         "w:startOverride": [],
-                        ":@": {
+                        xmlAttributes: {
                             "w:val": "1"
                         }
                     }],
-                ":@": {
+                xmlAttributes: {
                     "w:ilvl": String(i)
                 }
             });
@@ -311,11 +328,11 @@ function addNewNumberings(targetNumberingParsed, newListStyles) {
         numberingTag.push({
             "w:num": [{
                     "w:abstractNumId": [],
-                    ":@": {
+                    xmlAttributes: {
                         "w:val": oldNum
                     }
                 }, ...overrides],
-            ":@": {
+            xmlAttributes: {
                 "w:numId": newNum
             }
         });
@@ -325,7 +342,7 @@ function addContentType(contentTypes, partName, contentType) {
     let typesTag = getChildTag(contentTypes, "Types")["Types"];
     typesTag.push({
         "Override": [],
-        ":@": {
+        xmlAttributes: {
             "PartName": partName,
             "ContentType": contentType
         }
@@ -337,19 +354,19 @@ function transferRels(source, target) {
     let presentIds = new Map();
     let idMap = new Map();
     for (let rel of targetRels) {
-        presentIds.set(rel[":@"]["Target"], rel[":@"]["Id"]);
+        presentIds.set(rel[xmlAttributes]["Target"], rel[xmlAttributes]["Id"]);
     }
     let newIdCounter = 0;
     for (let rel of sourceRels) {
-        if (presentIds.has(rel[":@"]["Target"])) {
-            idMap.set(rel[":@"]["Id"], presentIds.get(rel[":@"]["Target"]));
+        if (presentIds.has(rel[xmlAttributes]["Target"])) {
+            idMap.set(rel[xmlAttributes]["Id"], presentIds.get(rel[xmlAttributes]["Target"]));
         }
         else {
             let newId = "template-id-" + (newIdCounter++);
             let relCopy = JSON.parse(JSON.stringify(rel));
-            relCopy[":@"]["Id"] = newId;
+            relCopy[xmlAttributes]["Id"] = newId;
             targetRels.push(relCopy);
-            idMap.set(rel[":@"]["Id"], newId);
+            idMap.set(rel[xmlAttributes]["Id"], newId);
         }
     }
     return idMap;
@@ -388,7 +405,7 @@ function getParagraphText(paragraph) {
         result += getRawText(paragraph);
     }
     for (let name of Object.getOwnPropertyNames(paragraph)) {
-        if (name === ":@") {
+        if (name === xmlAttributes) {
             continue;
         }
         if (Array.isArray(paragraph[name])) {
@@ -490,7 +507,7 @@ function replaceParagraphContents(paragraph, text) {
                 "w:t": [{
                         "#text": text
                     }],
-                ":@": {
+                xmlAttributes: {
                     "xml:space": "preserve"
                 }
             }
@@ -527,7 +544,7 @@ function getParagraphWithStyle(style) {
         "w:p": [{
                 "w:pPr": [{
                         "w:pStyle": [],
-                        ":@": {
+                        xmlAttributes: {
                             "w:val": style
                         }
                     }]
@@ -542,10 +559,10 @@ function getNumPr(ilvl, numId) {
     return {
         "w:numPr": [{
                 "w:ilvl": [],
-                ":@": { "w:val": "0" }
+                xmlAttributes: { "w:val": "0" }
             }, {
                 "w:numId": [],
-                ":@": { "w:val": numId }
+                xmlAttributes: { "w:val": numId }
             }]
     };
 }
@@ -610,7 +627,7 @@ function replaceTemplates(template, body, meta) {
 function setXmlns(xml, xmlns) {
     let documentTag = getChildTag(xml, "w:document");
     for (let [key, value] of xmlns) {
-        documentTag[":@"][key] = value;
+        documentTag[xmlAttributes][key] = value;
     }
 }
 let tagsWithRelId = new Map([
@@ -629,7 +646,7 @@ function patchRelIds(doc, map) {
     if (typeof doc != "object")
         return;
     let tagName = getTagName(doc);
-    let attrs = doc[":@"];
+    let attrs = doc[xmlAttributes];
     if (attrs) {
         for (let attr in ["r:id", "r:embed"]) {
             let relId = attrs[attr];
@@ -638,32 +655,18 @@ function patchRelIds(doc, map) {
             }
         }
     }
-    if (doc[":@"]) {
+    if (doc[xmlAttributes]) {
         let relIdAttr = tagsWithRelId.get(tagName);
         if (relIdAttr) {
-            let relId = doc[":@"][relIdAttr];
+            let relId = doc[xmlAttributes][relIdAttr];
             if (relId && map.has(relId)) {
-                doc[":@"][relIdAttr] = map.get(relId);
+                doc[xmlAttributes][relIdAttr] = map.get(relId);
             }
         }
     }
     patchRelIds(doc[tagName], map);
 }
 async function fixDocxStyles(sourcePath, targetPath, meta) {
-    let parser = new fast_xml_parser_1.XMLParser({
-        ignoreAttributes: false,
-        alwaysCreateTextNode: true,
-        attributeNamePrefix: "",
-        preserveOrder: true,
-        trimValues: false,
-        commentPropName: "#comment"
-    });
-    let builder = new fast_xml_parser_1.XMLBuilder({
-        ignoreAttributes: false,
-        attributeNamePrefix: "",
-        preserveOrder: true,
-        commentPropName: "#comment"
-    });
     let resourcesDir = path.dirname(process.argv[1]) + "/../resources";
     // Load the source and target documents
     let target = await JSZip.loadAsync(fs.readFileSync(sourcePath));
@@ -679,17 +682,17 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
     let sourceHeader1 = await source.file("word/header1.xml").async("string");
     let sourceHeader2 = await source.file("word/header2.xml").async("string");
     let sourceHeader3 = await source.file("word/header3.xml").async("string");
-    let targetContentTypesParsed = parser.parse(targetContentTypesXML);
-    let targetDocumentRelsParsed = parser.parse(targetDocumentRelsXML);
-    let sourceDocumentRelsParsed = parser.parse(sourceDocumentRelsXML);
-    let sourceStylesParsed = parser.parse(sourceStylesXML);
-    let targetStylesParsed = parser.parse(targetStylesXML);
-    let sourceDocParsed = parser.parse(sourceDocXML);
-    let targetDocParsed = parser.parse(targetDocXML);
-    let targetNumberingParsed = parser.parse(targetNumberingXML);
-    let sourceHeader1Parsed = parser.parse(sourceHeader1);
-    let sourceHeader2Parsed = parser.parse(sourceHeader2);
-    let sourceHeader3Parsed = parser.parse(sourceHeader3);
+    let targetContentTypesParsed = xmlParser.parse(targetContentTypesXML);
+    let targetDocumentRelsParsed = xmlParser.parse(targetDocumentRelsXML);
+    let sourceDocumentRelsParsed = xmlParser.parse(sourceDocumentRelsXML);
+    let sourceStylesParsed = xmlParser.parse(sourceStylesXML);
+    let targetStylesParsed = xmlParser.parse(targetStylesXML);
+    let sourceDocParsed = xmlParser.parse(sourceDocXML);
+    let targetDocParsed = xmlParser.parse(targetDocXML);
+    let targetNumberingParsed = xmlParser.parse(targetNumberingXML);
+    let sourceHeader1Parsed = xmlParser.parse(sourceHeader1);
+    let sourceHeader2Parsed = xmlParser.parse(sourceHeader2);
+    let sourceHeader3Parsed = xmlParser.parse(sourceHeader3);
     copyLatentStyles(sourceStylesParsed, targetStylesParsed);
     copyDocDefaults(sourceStylesParsed, targetStylesParsed);
     let targetStylesNamesToId = getStyleIdsByNameFromDefs(getChildTag(targetStylesParsed, "w:styles")["w:styles"]);
@@ -786,21 +789,16 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
     await copyFile(source, target, "word/settings.xml");
     await copyFile(source, target, "word/webSettings.xml");
     await copyFile(source, target, "word/media/image1.png");
-    target.file("word/header1.xml", builder.build(sourceHeader1Parsed));
-    target.file("word/header2.xml", builder.build(sourceHeader2Parsed));
-    target.file("word/header3.xml", builder.build(sourceHeader3Parsed));
-    target.file("word/_rels/document.xml.rels", builder.build(targetDocumentRelsParsed));
-    target.file("[Content_Types].xml", builder.build(targetContentTypesParsed));
-    target.file("word/numbering.xml", builder.build(targetNumberingParsed));
-    target.file("word/styles.xml", builder.build(targetStylesParsed));
-    target.file("word/document.xml", builder.build(targetDocParsed));
+    target.file("word/header1.xml", xmlBuilder.build(sourceHeader1Parsed));
+    target.file("word/header2.xml", xmlBuilder.build(sourceHeader2Parsed));
+    target.file("word/header3.xml", xmlBuilder.build(sourceHeader3Parsed));
+    target.file("word/_rels/document.xml.rels", xmlBuilder.build(targetDocumentRelsParsed));
+    target.file("[Content_Types].xml", xmlBuilder.build(targetContentTypesParsed));
+    target.file("word/numbering.xml", xmlBuilder.build(targetNumberingParsed));
+    target.file("word/styles.xml", xmlBuilder.build(targetStylesParsed));
+    target.file("word/document.xml", xmlBuilder.build(targetDocParsed));
     fs.writeFileSync(targetPath, await target.generateAsync({ type: "uint8array" }));
 }
-let builder = new fast_xml_parser_1.XMLBuilder({
-    ignoreAttributes: false,
-    attributeNamePrefix: "",
-    preserveOrder: true
-});
 function fixCompactLists(list) {
     // For compact list, 'para' is replaced with 'plain'.
     // Compact lists were not mentioned in the
@@ -830,10 +828,10 @@ function getImageCaption(content) {
             "w:pPr": [
                 {
                     "w:pStyle": [],
-                    ":@": { "w:val": "ImageCaption" }
+                    xmlAttributes: { "w:val": "ImageCaption" }
                 }, {
                     "w:contextualSpacing": [],
-                    ":@": {
+                    xmlAttributes: {
                         "w:val": "true"
                     }
                 }
@@ -844,7 +842,7 @@ function getImageCaption(content) {
                     "w:t": [{
                             "#text": getMetaString(content)
                         }],
-                    ":@": {
+                    xmlAttributes: {
                         "xml:space": "preserve"
                     }
                 }]
@@ -852,7 +850,7 @@ function getImageCaption(content) {
     ];
     return {
         t: "RawBlock",
-        c: ["openxml", `<w:p>${builder.build(elements)}</w:p>`]
+        c: ["openxml", `<w:p>${xmlBuilder.build(elements)}</w:p>`]
     };
 }
 function getListingCaption(content) {
@@ -861,10 +859,10 @@ function getListingCaption(content) {
             "w:pPr": [
                 {
                     "w:pStyle": [],
-                    ":@": { "w:val": "BodyText" }
+                    xmlAttributes: { "w:val": "BodyText" }
                 }, {
                     "w:jc": [],
-                    ":@": { "w:val": "left" }
+                    xmlAttributes: { "w:val": "left" }
                 },
             ]
         },
@@ -874,15 +872,15 @@ function getListingCaption(content) {
                     "w:rPr": [
                         { "w:i": [] },
                         { "w:iCs": [] },
-                        { "w:sz": [], ":@": { "w:val": "18" } },
-                        { "w:szCs": [], ":@": { "w:val": "18" } },
+                        { "w:sz": [], xmlAttributes: { "w:val": "18" } },
+                        { "w:szCs": [], xmlAttributes: { "w:val": "18" } },
                     ]
                 }, {
                     "w:t": [{
                             "#text": getMetaString(content)
                         }
                     ],
-                    ":@": {
+                    xmlAttributes: {
                         "xml:space": "preserve"
                     }
                 }
@@ -891,7 +889,7 @@ function getListingCaption(content) {
     ];
     return {
         t: "RawBlock",
-        c: ["openxml", `<w:p>${builder.build(elements)}</w:p>`]
+        c: ["openxml", `<w:p>${xmlBuilder.build(elements)}</w:p>`]
     };
 }
 function getPatchedMetaElement(element) {
