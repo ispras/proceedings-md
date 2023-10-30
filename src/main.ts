@@ -3,6 +3,11 @@ import * as fs from 'fs';
 import * as JSZip from 'jszip';
 import {XMLParser, XMLBuilder, XMLValidator} from 'fast-xml-parser';
 import {spawn} from "child_process";
+import pandoc from "./pandoc";
+import * as XML from "./xml";
+import * as OXML from "./oxml";
+
+const pandocFlags = ["--tab-stop=8"]
 
 const properDocXmlns = new Map<string, string>([
     ["xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"],
@@ -24,59 +29,22 @@ let tagsWithRelId = new Map<string, string>([
     ["a:blip", "r:embed"],
 ])
 
-const pandocFlags = ["--tab-stop=8"]
-const languages = ["ru", "en"]
-const xmlComment = "__comment__"
-const xmlText = "__text__"
-const xmlAttributes = ":@"
-
-const xmlParser = new XMLParser({
-    ignoreAttributes: false,
-    alwaysCreateTextNode: true,
-    attributeNamePrefix: "",
-    preserveOrder: true,
-    trimValues: false,
-    commentPropName: xmlComment,
-    textNodeName: xmlText
-})
-
-let xmlBuilder = new XMLBuilder({
-    ignoreAttributes: false,
-    attributeNamePrefix: "",
-    preserveOrder: true,
-    commentPropName: xmlComment,
-    textNodeName: xmlText
-})
-
-function getChildTag(styles: any, name: string): any {
-    for (let child of styles) {
-        if (child[name]) {
-            return child
-        }
-    }
-}
-
-function getTagName(tag: any): string {
-    for (let key of Object.getOwnPropertyNames(tag)) {
-        if (key === xmlAttributes) continue
-        return key
-    }
-}
+export const languages = ["ru", "en"]
 
 function getStyleCrossReferences(styles: any): any[] {
     let result = []
-    for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
+    for (let style of XML.getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"]) continue
-        result.push(style[xmlAttributes])
+        result.push(style[XML.keys.attributes])
 
-        let basedOnTag = getChildTag(style["w:style"], "w:basedOn")
-        if (basedOnTag) result.push(basedOnTag[xmlAttributes])
+        let basedOnTag = XML.getChildTag(style["w:style"], "w:basedOn")
+        if (basedOnTag) result.push(basedOnTag[XML.keys.attributes])
 
-        let linkTag = getChildTag(style["w:style"], "w:link")
-        if (linkTag) result.push(linkTag[xmlAttributes])
+        let linkTag = XML.getChildTag(style["w:style"], "w:link")
+        if (linkTag) result.push(linkTag[XML.keys.attributes])
 
-        let nextTag = getChildTag(style["w:style"], "w:next")
-        if (nextTag) result.push(nextTag[xmlAttributes])
+        let nextTag = XML.getChildTag(style["w:style"], "w:next")
+        if (nextTag) result.push(nextTag[XML.keys.attributes])
     }
     return result
 }
@@ -93,9 +61,9 @@ function getDocStyleUseReferences(doc: any, result: any[] = [], met = new Set())
         }
     }
 
-    let tagName = getTagName(doc)
+    let tagName = XML.getTagName(doc)
     if (tagName === "w:pStyle" || tagName == "w:rStyle") {
-        result.push(doc[xmlAttributes])
+        result.push(doc[XML.keys.attributes])
     }
     result = getDocStyleUseReferences(doc[tagName], result, met)
 
@@ -104,10 +72,10 @@ function getDocStyleUseReferences(doc: any, result: any[] = [], met = new Set())
 
 function extractStyleDefs(styles: any): any[] {
     let result = []
-    for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
+    for (let style of XML.getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"]) continue
 
-        if (style[xmlAttributes]["w:styleId"].startsWith("template-")) {
+        if (style[XML.keys.attributes]["w:styleId"].startsWith("template-")) {
             let copy = JSON.parse(JSON.stringify(style))
             result.push(copy)
         }
@@ -155,14 +123,14 @@ function populateStyles(styles: Set<string>, table: Map<string, any>) {
             throw new Error("Style id " + styleId + " not found")
         }
 
-        let basedOnTag = getChildTag(style["w:style"], "w:basedOn")
-        if (basedOnTag) styles.add(basedOnTag[xmlAttributes]["w:val"])
+        let basedOnTag = XML.getChildTag(style["w:style"], "w:basedOn")
+        if (basedOnTag) styles.add(basedOnTag[XML.keys.attributes]["w:val"])
 
-        let linkTag = getChildTag(style["w:style"], "w:link")
-        if (linkTag) styles.add(linkTag[xmlAttributes]["w:val"])
+        let linkTag = XML.getChildTag(style["w:style"], "w:link")
+        if (linkTag) styles.add(linkTag[XML.keys.attributes]["w:val"])
 
-        let nextTag = getChildTag(style["w:style"], "w:next")
-        if (nextTag) styles.add(nextTag[xmlAttributes]["w:val"])
+        let nextTag = XML.getChildTag(style["w:style"], "w:next")
+        if (nextTag) styles.add(nextTag[XML.keys.attributes]["w:val"])
     }
 }
 
@@ -185,9 +153,9 @@ function getUsedStylesDeep(doc: any, styleTable: Map<string, any>, requiredStyle
 function getStyleTable(styles: any): Map<string, any> {
     let table = new Map<string, any>()
 
-    for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
+    for (let style of XML.getChildTag(styles, "w:styles")["w:styles"]) {
         if (!style["w:style"]) continue
-        table.set(style[xmlAttributes]["w:styleId"], style)
+        table.set(style[XML.keys.attributes]["w:styleId"], style)
     }
 
     return table
@@ -198,10 +166,10 @@ function getStyleIdsByNameFromDefs(styles: any): Map<string, any> {
 
     for (let style of styles) {
         if (!style["w:style"]) continue
-        let nameNode = getChildTag(style["w:style"], "w:name")
+        let nameNode = XML.getChildTag(style["w:style"], "w:name")
 
         if (nameNode) {
-            table.set(nameNode[xmlAttributes]["w:val"], style[xmlAttributes]["w:styleId"])
+            table.set(nameNode[XML.keys.attributes]["w:val"], style[XML.keys.attributes]["w:styleId"])
         }
     }
 
@@ -224,7 +192,7 @@ function getMappingTable(usedStyles: Set<string>): Map<string, string> {
 }
 
 function appendStyles(target, defs) {
-    let styles = getChildTag(target, "w:styles")["w:styles"]
+    let styles = XML.getChildTag(target, "w:styles")["w:styles"]
     for (let def of defs) {
         styles.push(def)
     }
@@ -273,16 +241,16 @@ function applyListStyles(doc, styles: ListStyles): Map<string, string> {
 
                 doc[key].unshift({
                     "w:pStyle": {},
-                    ...getAttributesXml({"w:val": styles[currentState.listStyle].styleName})
+                    ...XML.buildAttributes({"w:val": styles[currentState.listStyle].styleName})
                 })
             }
 
             if (key === "w:numId" && currentState) {
-                doc[xmlAttributes]["w:val"] = String(currentState.numId)
+                doc[XML.keys.attributes]["w:val"] = String(currentState.numId)
             }
 
-            if (key === xmlComment) {
-                let commentValue = doc[key][0][xmlText]
+            if (key === XML.keys.comment) {
+                let commentValue = doc[key][0][XML.keys.text]
                 // Switch between ordered list and bullet list
                 // if comment is detected
 
@@ -321,38 +289,38 @@ function removeCollidedStyles(styles: any, collisions: Set<string>) {
     let ignored = 0
     let newContents = []
 
-    for (let style of getChildTag(styles, "w:styles")["w:styles"]) {
-        if (!style["w:style"] || !collisions.has(style[xmlAttributes]["w:styleId"])) {
+    for (let style of XML.getChildTag(styles, "w:styles")["w:styles"]) {
+        if (!style["w:style"] || !collisions.has(style[XML.keys.attributes]["w:styleId"])) {
             newContents.push(style)
         }
     }
 
-    getChildTag(styles, "w:styles")["w:styles"] = newContents
+    XML.getChildTag(styles, "w:styles")["w:styles"] = newContents
 }
 
 function copyLatentStyles(source, target) {
-    let sourceStyles = getChildTag(source, "w:styles")["w:styles"]
-    let targetStyles = getChildTag(target, "w:styles")["w:styles"]
+    let sourceStyles = XML.getChildTag(source, "w:styles")["w:styles"]
+    let targetStyles = XML.getChildTag(target, "w:styles")["w:styles"]
 
-    let sourceLatentStyles = getChildTag(sourceStyles, "w:latentStyles")
-    let targetLatentStyles = getChildTag(targetStyles, "w:latentStyles")
+    let sourceLatentStyles = XML.getChildTag(sourceStyles, "w:latentStyles")
+    let targetLatentStyles = XML.getChildTag(targetStyles, "w:latentStyles")
 
     targetLatentStyles["w:latentStyles"] = JSON.parse(JSON.stringify(sourceLatentStyles["w:latentStyles"]))
-    if (targetLatentStyles[xmlAttributes]) {
-        targetLatentStyles[xmlAttributes] = JSON.parse(JSON.stringify(sourceLatentStyles[xmlAttributes]))
+    if (targetLatentStyles[XML.keys.attributes]) {
+        targetLatentStyles[XML.keys.attributes] = JSON.parse(JSON.stringify(sourceLatentStyles[XML.keys.attributes]))
     }
 }
 
 function copyDocDefaults(source, target) {
-    let sourceStyles = getChildTag(source, "w:styles")["w:styles"]
-    let targetStyles = getChildTag(target, "w:styles")["w:styles"]
+    let sourceStyles = XML.getChildTag(source, "w:styles")["w:styles"]
+    let targetStyles = XML.getChildTag(target, "w:styles")["w:styles"]
 
-    let sourceDocDefaults = getChildTag(sourceStyles, "w:docDefaults")
-    let targetDocDefaults = getChildTag(targetStyles, "w:docDefaults")
+    let sourceDocDefaults = XML.getChildTag(sourceStyles, "w:docDefaults")
+    let targetDocDefaults = XML.getChildTag(targetStyles, "w:docDefaults")
 
     targetDocDefaults["w:docDefaults"] = JSON.parse(JSON.stringify(sourceDocDefaults["w:docDefaults"]))
-    if (sourceDocDefaults[xmlAttributes]) {
-        targetDocDefaults[xmlAttributes] = JSON.parse(JSON.stringify(sourceDocDefaults[xmlAttributes]))
+    if (sourceDocDefaults[XML.keys.attributes]) {
+        targetDocDefaults[XML.keys.attributes] = JSON.parse(JSON.stringify(sourceDocDefaults[XML.keys.attributes]))
     }
 }
 
@@ -361,7 +329,7 @@ async function copyFile(source, target, path) {
 }
 
 function addNewNumberings(targetNumberingParsed: any, newListStyles: Map<string, string>) {
-    let numberingTag = getChildTag(targetNumberingParsed, "w:numbering")["w:numbering"]
+    let numberingTag = XML.getChildTag(targetNumberingParsed, "w:numbering")["w:numbering"]
 
     // <w:num w:numId="newNum">
     //   <w:abstractNumId w:val="oldNum"/>
@@ -374,28 +342,28 @@ function addNewNumberings(targetNumberingParsed: any, newListStyles: Map<string,
             overrides.push({
                 "w:lvlOverride": [{
                     "w:startOverride": [],
-                    ...getAttributesXml({"w:val": "1"})
+                    ...XML.buildAttributes({"w:val": "1"})
                 }],
-                ...getAttributesXml({"w:ilvl": String(i)})
+                ...XML.buildAttributes({"w:ilvl": String(i)})
             })
         }
 
         numberingTag.push({
             "w:num": [{
                 "w:abstractNumId": [],
-                ...getAttributesXml({"w:val": oldNum})
+                ...XML.buildAttributes({"w:val": oldNum})
             }, ...overrides],
-            ...getAttributesXml({"w:numId": newNum})
+            ...XML.buildAttributes({"w:numId": newNum})
         })
     }
 }
 
 function addContentType(contentTypes, partName, contentType) {
-    let typesTag = getChildTag(contentTypes, "Types")["Types"]
+    let typesTag = XML.getChildTag(contentTypes, "Types")["Types"]
 
     typesTag.push({
         "Override": [],
-        ...getAttributesXml({
+        ...XML.buildAttributes({
             "PartName": partName,
             "ContentType": contentType
         })
@@ -403,27 +371,27 @@ function addContentType(contentTypes, partName, contentType) {
 }
 
 function transferRels(source, target): Map<string, string> {
-    let sourceRels = getChildTag(source, "Relationships")["Relationships"]
-    let targetRels = getChildTag(target, "Relationships")["Relationships"]
+    let sourceRels = XML.getChildTag(source, "Relationships")["Relationships"]
+    let targetRels = XML.getChildTag(target, "Relationships")["Relationships"]
 
     let presentIds = new Map<string, string>()
     let idMap = new Map<string, string>()
 
     for (let rel of targetRels) {
-        presentIds.set(rel[xmlAttributes]["Target"], rel[xmlAttributes]["Id"])
+        presentIds.set(rel[XML.keys.attributes]["Target"], rel[XML.keys.attributes]["Id"])
     }
 
     let newIdCounter = 0
 
     for (let rel of sourceRels) {
-        if (presentIds.has(rel[xmlAttributes]["Target"])) {
-            idMap.set(rel[xmlAttributes]["Id"], presentIds.get(rel[xmlAttributes]["Target"]))
+        if (presentIds.has(rel[XML.keys.attributes]["Target"])) {
+            idMap.set(rel[XML.keys.attributes]["Id"], presentIds.get(rel[XML.keys.attributes]["Target"]))
         } else {
             let newId = "template-id-" + (newIdCounter++)
             let relCopy = JSON.parse(JSON.stringify(rel))
-            relCopy[xmlAttributes]["Id"] = newId
+            relCopy[XML.keys.attributes]["Id"] = newId
             targetRels.push(relCopy)
-            idMap.set(rel[xmlAttributes]["Id"], newId)
+            idMap.set(rel[XML.keys.attributes]["Id"], newId)
         }
     }
 
@@ -432,10 +400,10 @@ function transferRels(source, target): Map<string, string> {
 
 function getRawText(tag): string {
     let result = ""
-    let tagName = getTagName(tag)
+    let tagName = XML.getTagName(tag)
 
-    if (tagName === xmlText) {
-        result += tag[xmlText]
+    if (tagName === XML.keys.text) {
+        result += tag[XML.keys.text]
     }
     if (Array.isArray(tag[tagName])) {
         for (let child of tag[tagName]) {
@@ -466,10 +434,10 @@ function replaceStringTemplate(tag: any, template: string, value: string) {
         return
     }
 
-    let tagName = getTagName(tag)
+    let tagName = XML.getTagName(tag)
 
-    if (tagName === xmlText) {
-        tag[xmlText] = String(tag[xmlText]).replace(template, value)
+    if (tagName === XML.keys.text) {
+        tag[XML.keys.text] = String(tag[XML.keys.text]).replace(template, value)
     } else if (typeof tag[tagName] === "object") {
         replaceStringTemplate(tag[tagName], template, value)
     }
@@ -483,7 +451,7 @@ function getParagraphText(paragraph: any): string {
     }
 
     for (let name of Object.getOwnPropertyNames(paragraph)) {
-        if (name === xmlAttributes) {
+        if (name === XML.keys.attributes) {
             continue
         }
         if (Array.isArray(paragraph[name])) {
@@ -523,8 +491,8 @@ function findParagraphWithPatternStrict(body: any, pattern: string, startIndex: 
 }
 
 function getDocumentBody(document: any): any {
-    let documentTag = getChildTag(document, "w:document")["w:document"]
-    return getChildTag(documentTag, "w:body")["w:body"]
+    let documentTag = XML.getChildTag(document, "w:document")["w:document"]
+    return XML.getChildTag(documentTag, "w:body")["w:body"]
 }
 
 function getMetaString(value: any): string {
@@ -596,54 +564,16 @@ function templateReplaceBodyContents(templateBody: any, body: any) {
     templateBody.splice(paragraphIndex, 1, ...body)
 }
 
-function getXmlTextTag(text: string): any {
-    let result = {};
-    result[xmlText] = text
-    return result
-}
-
-function getAttributesXml(attributes: any): any {
-    let result = {}
-    result[xmlAttributes] = attributes
-    return result
-}
-
 function clearParagraphContents(paragraph: any): any {
     let contents = paragraph["w:p"]
 
     for (let i = 0; i < contents.length; i++) {
-        let tagName = getTagName(contents[i])
+        let tagName = XML.getTagName(contents[i])
         if (tagName === "w:r") {
             contents.splice(i, 1)
             i--
         }
     }
-}
-
-function getSuperscriptTextStyle(): any {
-    return {
-        "w:vertAlign": [],
-        ...getAttributesXml({"w:val": "superscript"})
-    }
-}
-
-function getParagraphTextTag(text: string, styles?: any[]): any {
-    let result = {
-        "w:r": [
-            {
-                "w:t": [getXmlTextTag(text)],
-                ...getAttributesXml({"xml:space": "preserve"})
-            }
-        ]
-    }
-
-    if(styles) {
-        result["w:r"].unshift({
-            "w:rPr": styles
-        })
-    }
-
-    return result;
 }
 
 function templateAuthorList(templateBody: any, meta: any) {
@@ -664,8 +594,8 @@ function templateAuthorList(templateBody: any, meta: any) {
             let indexLine = String(authorIndex)
             let authorLine = author["name_" + language] + ", ORCID: " + author.orcid + ", <" + author.email + ">"
 
-            let indexTag = getParagraphTextTag(indexLine, [getSuperscriptTextStyle()])
-            let authorTag = getParagraphTextTag(authorLine)
+            let indexTag = OXML.buildParagraphTextTag(indexLine, [OXML.buildSuperscriptTextStyle()])
+            let authorTag = OXML.buildParagraphTextTag(authorLine)
 
             newParagraph["w:p"].push(indexTag, authorTag)
             newParagraphs.push(newParagraph)
@@ -689,8 +619,8 @@ function templateAuthorList(templateBody: any, meta: any) {
 
             let indexLine = String(orgIndex)
 
-            let indexTag = getParagraphTextTag(indexLine, [getSuperscriptTextStyle()])
-            let organizationTag = getParagraphTextTag(organizationLine)
+            let indexTag = OXML.buildParagraphTextTag(indexLine, [OXML.buildSuperscriptTextStyle()])
+            let organizationTag = OXML.buildParagraphTextTag(organizationLine)
 
             newParagraph["w:p"].push(indexTag, organizationTag)
             newParagraphs.push(newParagraph)
@@ -702,34 +632,6 @@ function templateAuthorList(templateBody: any, meta: any) {
     }
 }
 
-function getParagraphWithStyle(style: string): any {
-    return {
-        "w:p": [{
-            "w:pPr": [{
-                "w:pStyle": [],
-                ...getAttributesXml({"w:val": style})
-            }]
-        }]
-    };
-}
-
-function getNumPr(ilvl: string, numId: string): any {
-    // <w:numPr>
-    //    <w:ilvl w:val="<ilvl>"/>
-    //    <w:numId w:val="<numId>"/>
-    // </w:numPr>
-
-    return {
-        "w:numPr": [{
-            "w:ilvl": [],
-            ...getAttributesXml({"w:val": "0"})
-        }, {
-            "w:numId": [],
-            ...getAttributesXml({"w:val": numId})
-        }]
-    }
-}
-
 function templateReplaceLinks(templateBody: any, meta: any, listRules: any) {
     let litListRule = listRules["LitList"]
     let paragraphIndex = findParagraphWithPatternStrict(templateBody, "{{{links}}}")
@@ -738,11 +640,11 @@ function templateReplaceLinks(templateBody: any, meta: any, listRules: any) {
     let newParagraphs = []
 
     for (let link of links) {
-        let newParagraph = getParagraphWithStyle(litListRule.styleName)
-        let style = getChildTag(newParagraph["w:p"], "w:pPr")
-        style["w:pPr"].push(getNumPr("0", litListRule.numId))
+        let newParagraph = OXML.buildParagraphWithStyle(litListRule.styleName)
+        let style = XML.getChildTag(newParagraph["w:p"], "w:pPr")
+        style["w:pPr"].push(OXML.buildNumPr("0", litListRule.numId))
 
-        newParagraph["w:p"].push(getParagraphTextTag(link))
+        newParagraph["w:p"].push(OXML.buildParagraphTextTag(link))
         newParagraphs.push(newParagraph)
     }
 
@@ -762,7 +664,7 @@ function templateReplaceAuthorsDetail(templateBody: any, meta: any) {
             let line = author["details_" + language]
 
             clearParagraphContents(newParagraph)
-            newParagraph["w:p"].push(getParagraphTextTag(line))
+            newParagraph["w:p"].push(OXML.buildParagraphTextTag(line))
             newParagraphs.push(newParagraph)
         }
     }
@@ -812,10 +714,10 @@ function replaceTemplates(template: any, body: any, meta: any): any {
 }
 
 function setXmlns(xml: any, xmlns: Map<string, string>) {
-    let documentTag = getChildTag(xml, "w:document")
+    let documentTag = XML.getChildTag(xml, "w:document")
 
     for (let [key, value] of xmlns) {
-        documentTag[xmlAttributes][key] = value
+        documentTag[XML.keys.attributes][key] = value
     }
 }
 
@@ -828,9 +730,9 @@ function patchRelIds(doc: any, map: Map<string, string>) {
 
     if (typeof doc != "object") return
 
-    let tagName = getTagName(doc)
+    let tagName = XML.getTagName(doc)
 
-    let attrs = doc[xmlAttributes]
+    let attrs = doc[XML.keys.attributes]
     if (attrs) {
         for (let attr in ["r:id", "r:embed"]) {
             let relId = attrs[attr]
@@ -840,12 +742,12 @@ function patchRelIds(doc: any, map: Map<string, string>) {
         }
     }
 
-    if (doc[xmlAttributes]) {
+    if (doc[XML.keys.attributes]) {
         let relIdAttr = tagsWithRelId.get(tagName)
         if (relIdAttr) {
-            let relId = doc[xmlAttributes][relIdAttr]
+            let relId = doc[XML.keys.attributes][relIdAttr]
             if (relId && map.has(relId)) {
-                doc[xmlAttributes][relIdAttr] = map.get(relId)
+                doc[XML.keys.attributes][relIdAttr] = map.get(relId)
             }
         }
     }
@@ -872,23 +774,23 @@ async function fixDocxStyles(sourcePath, targetPath, meta): Promise<void> {
     let sourceHeader2 = await source.file("word/header2.xml").async("string");
     let sourceHeader3 = await source.file("word/header3.xml").async("string");
 
-    let targetContentTypesParsed = xmlParser.parse(targetContentTypesXML);
-    let targetDocumentRelsParsed = xmlParser.parse(targetDocumentRelsXML);
-    let sourceDocumentRelsParsed = xmlParser.parse(sourceDocumentRelsXML);
-    let sourceStylesParsed = xmlParser.parse(sourceStylesXML);
-    let targetStylesParsed = xmlParser.parse(targetStylesXML);
-    let sourceDocParsed = xmlParser.parse(sourceDocXML);
-    let targetDocParsed = xmlParser.parse(targetDocXML);
-    let targetNumberingParsed = xmlParser.parse(targetNumberingXML);
-    let sourceHeader1Parsed = xmlParser.parse(sourceHeader1)
-    let sourceHeader2Parsed = xmlParser.parse(sourceHeader2)
-    let sourceHeader3Parsed = xmlParser.parse(sourceHeader3)
+    let targetContentTypesParsed = XML.parser.parse(targetContentTypesXML);
+    let targetDocumentRelsParsed = XML.parser.parse(targetDocumentRelsXML);
+    let sourceDocumentRelsParsed = XML.parser.parse(sourceDocumentRelsXML);
+    let sourceStylesParsed = XML.parser.parse(sourceStylesXML);
+    let targetStylesParsed = XML.parser.parse(targetStylesXML);
+    let sourceDocParsed = XML.parser.parse(sourceDocXML);
+    let targetDocParsed = XML.parser.parse(targetDocXML);
+    let targetNumberingParsed = XML.parser.parse(targetNumberingXML);
+    let sourceHeader1Parsed = XML.parser.parse(sourceHeader1)
+    let sourceHeader2Parsed = XML.parser.parse(sourceHeader2)
+    let sourceHeader3Parsed = XML.parser.parse(sourceHeader3)
 
     copyLatentStyles(sourceStylesParsed, targetStylesParsed)
     copyDocDefaults(sourceStylesParsed, targetStylesParsed)
 
-    let targetStylesNamesToId = getStyleIdsByNameFromDefs(getChildTag(targetStylesParsed, "w:styles")["w:styles"]);
-    let sourceStylesNamesToId = getStyleIdsByNameFromDefs(getChildTag(sourceStylesParsed, "w:styles")["w:styles"]);
+    let targetStylesNamesToId = getStyleIdsByNameFromDefs(XML.getChildTag(targetStylesParsed, "w:styles")["w:styles"]);
+    let sourceStylesNamesToId = getStyleIdsByNameFromDefs(XML.getChildTag(sourceStylesParsed, "w:styles")["w:styles"]);
 
     let sourceStyleTable = getStyleTable(sourceStylesParsed)
 
@@ -1005,15 +907,15 @@ async function fixDocxStyles(sourcePath, targetPath, meta): Promise<void> {
     await copyFile(source, target, "word/webSettings.xml")
     await copyFile(source, target, "word/media/image1.png")
 
-    target.file("word/header1.xml", xmlBuilder.build(sourceHeader1Parsed))
-    target.file("word/header2.xml", xmlBuilder.build(sourceHeader2Parsed))
-    target.file("word/header3.xml", xmlBuilder.build(sourceHeader3Parsed))
+    target.file("word/header1.xml", XML.builder.build(sourceHeader1Parsed))
+    target.file("word/header2.xml", XML.builder.build(sourceHeader2Parsed))
+    target.file("word/header3.xml", XML.builder.build(sourceHeader3Parsed))
 
-    target.file("word/_rels/document.xml.rels", xmlBuilder.build(targetDocumentRelsParsed))
-    target.file("[Content_Types].xml", xmlBuilder.build(targetContentTypesParsed))
-    target.file("word/numbering.xml", xmlBuilder.build(targetNumberingParsed))
-    target.file("word/styles.xml", xmlBuilder.build(targetStylesParsed))
-    target.file("word/document.xml", xmlBuilder.build(targetDocParsed))
+    target.file("word/_rels/document.xml.rels", XML.builder.build(targetDocumentRelsParsed))
+    target.file("[Content_Types].xml", XML.builder.build(targetContentTypesParsed))
+    target.file("word/numbering.xml", XML.builder.build(targetNumberingParsed))
+    target.file("word/styles.xml", XML.builder.build(targetStylesParsed))
+    target.file("word/document.xml", XML.builder.build(targetDocParsed))
 
     fs.writeFileSync(targetPath, await target.generateAsync({type: "uint8array"}));
 }
@@ -1050,18 +952,18 @@ function getImageCaption(content): any {
             "w:pPr": [
                 {
                     "w:pStyle": [],
-                    ...getAttributesXml({"w:val": "ImageCaption"})
+                    ...XML.buildAttributes({"w:val": "ImageCaption"})
                 }, {
                     "w:contextualSpacing": [],
-                    ...getAttributesXml({"w:val": "true"})
+                    ...XML.buildAttributes({"w:val": "true"})
                 }]
         },
-        getParagraphTextTag(getMetaString(content))
+        OXML.buildParagraphTextTag(getMetaString(content))
     ];
 
     return {
         t: "RawBlock",
-        c: ["openxml", `<w:p>${xmlBuilder.build(elements)}</w:p>`]
+        c: ["openxml", `<w:p>${XML.builder.build(elements)}</w:p>`]
     };
 }
 
@@ -1071,24 +973,24 @@ function getListingCaption(content): any {
             "w:pPr": [
                 {
                     "w:pStyle": [],
-                    ...getAttributesXml({"w:val": "BodyText"})
+                    ...XML.buildAttributes({"w:val": "BodyText"})
                 }, {
                     "w:jc": [],
-                    ...getAttributesXml({"w:val": "left"})
+                    ...XML.buildAttributes({"w:val": "left"})
                 },
             ]
         },
-        getParagraphTextTag(getMetaString(content), [
+        OXML.buildParagraphTextTag(getMetaString(content), [
             {"w:i": []},
             {"w:iCs": []},
-            {"w:sz": [], ...getAttributesXml({"w:val": "18"})},
-            {"w:szCs": [], ...getAttributesXml({"w:val": "18"})},
+            {"w:sz": [], ...XML.buildAttributes({"w:val": "18"})},
+            {"w:szCs": [], ...XML.buildAttributes({"w:val": "18"})},
         ])
     ];
 
     return {
         t: "RawBlock",
-        c: ["openxml", `<w:p>${xmlBuilder.build(elements)}</w:p>`]
+        c: ["openxml", `<w:p>${XML.builder.build(elements)}</w:p>`]
     };
 }
 
@@ -1136,38 +1038,6 @@ function getPatchedMetaElement(element): any {
     }
 
     return element
-}
-
-function pandoc(src, args): Promise<string> {
-    return new Promise((resolve, reject) => {
-        let stdout = ""
-        let stderr = ""
-
-        let pandocProcess = spawn('pandoc', args);
-
-        pandocProcess.stdin.end(src, 'utf-8');
-
-        pandocProcess.stdout.on('data', (data) => {
-            stdout += data
-        });
-
-        pandocProcess.stderr.on('data', (data) => {
-            stderr += data
-        });
-
-        pandocProcess.on('exit', function (code) {
-            if (stderr.length) {
-                console.error("There was some pandoc warnings along the way:")
-                console.error(stderr)
-            }
-
-            if (code == 0) {
-                resolve(stdout)
-            } else {
-                reject(new Error("Pandoc returned non-zero exit code"))
-            }
-        });
-    })
 }
 
 async function generatePandocDocx(source: string, target: string): Promise<any> {
