@@ -1,56 +1,46 @@
-import {XMLBuilder, XMLParser} from "fast-xml-parser";
+
 import * as XML from "./xml";
 
-export function buildParagraphWithStyle(style: string): any {
-    return {
-        "w:p": [{
-            "w:pPr": [{
-                "w:pStyle": [],
-                ...XML.buildAttributes({"w:val": style})
-            }]
-        }]
-    };
+export function getDocumentBody(document: XML.Node): XML.Node {
+    return document.getChild("w:document").getChild("w:body")
 }
 
-export function buildNumPr(ilvl: string, numId: string): any {
+export function buildParagraphWithStyle(style: string): XML.Node {
+    return XML.Node.build("w:p").insertChildren([
+        XML.Node.build("w:pPr").insertChildren([
+            XML.Node.build("w:pStyle").setAttr("w:val", style)
+        ])
+    ])
+}
+
+export function buildNumPr(ilvl: string, numId: string): XML.Node {
     // <w:numPr>
     //    <w:ilvl w:val="<ilvl>"/>
     //    <w:numId w:val="<numId>"/>
     // </w:numPr>
 
-    return {
-        "w:numPr": [{
-            "w:ilvl": [],
-            ...XML.buildAttributes({"w:val": "0"})
-        }, {
-            "w:numId": [],
-            ...XML.buildAttributes({"w:val": numId})
-        }]
-    }
+    return XML.Node.build("w:numPr").insertChildren([
+        XML.Node.build("w:ilvl").setAttr("w:val", "0"),
+        XML.Node.build("w:numId").setAttr("w:val", numId),
+    ])
 }
 
-export function buildSuperscriptTextStyle(): any {
-    return {
-        "w:vertAlign": [],
-        ...XML.buildAttributes({"w:val": "superscript"})
-    }
+export function buildSuperscriptTextStyle(): XML.Node {
+    return XML.Node.build("w:vertAlign").setAttr("w:val", "superscript")
 }
 
-export function buildParagraphTextTag(text: string, styles?: any[]): any {
-    let result = {
-        "w:r": [
-            {
-                "w:t": [XML.buildTextNode(text)],
-                ...XML.buildAttributes({"xml:space": "preserve"})
-            }
-        ]
-    }
+export function buildParagraphTextTag(text: string, styles?: XML.Node[]): XML.Node {
+    let result = XML.Node.build("w:r").insertChildren([
+        XML.Node.build("w:t")
+            .setAttr("xml:space", "preserve")
+            .insertChildren([
+                XML.Node.buildTextNode(text)
+            ])
+    ])
 
     if(styles) {
-        result["w:r"].unshift({
-            "w:rPr": styles
-        })
+        result.unshiftChild(XML.Node.build("w:rPr").insertChildren(styles))
     }
 
-    return result;
+    return result
 }

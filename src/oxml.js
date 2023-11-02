@@ -23,17 +23,18 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.buildParagraphTextTag = exports.buildSuperscriptTextStyle = exports.buildNumPr = exports.buildParagraphWithStyle = void 0;
+exports.buildParagraphTextTag = exports.buildSuperscriptTextStyle = exports.buildNumPr = exports.buildParagraphWithStyle = exports.getDocumentBody = void 0;
 const XML = __importStar(require("./xml"));
+function getDocumentBody(document) {
+    return document.getChild("w:document").getChild("w:body");
+}
+exports.getDocumentBody = getDocumentBody;
 function buildParagraphWithStyle(style) {
-    return {
-        "w:p": [{
-                "w:pPr": [{
-                        "w:pStyle": [],
-                        ...XML.buildAttributes({ "w:val": style })
-                    }]
-            }]
-    };
+    return XML.Node.build("w:p").insertChildren([
+        XML.Node.build("w:pPr").insertChildren([
+            XML.Node.build("w:pStyle").setAttr("w:val", style)
+        ])
+    ]);
 }
 exports.buildParagraphWithStyle = buildParagraphWithStyle;
 function buildNumPr(ilvl, numId) {
@@ -41,37 +42,26 @@ function buildNumPr(ilvl, numId) {
     //    <w:ilvl w:val="<ilvl>"/>
     //    <w:numId w:val="<numId>"/>
     // </w:numPr>
-    return {
-        "w:numPr": [{
-                "w:ilvl": [],
-                ...XML.buildAttributes({ "w:val": "0" })
-            }, {
-                "w:numId": [],
-                ...XML.buildAttributes({ "w:val": numId })
-            }]
-    };
+    return XML.Node.build("w:numPr").insertChildren([
+        XML.Node.build("w:ilvl").setAttr("w:val", "0"),
+        XML.Node.build("w:numId").setAttr("w:val", numId),
+    ]);
 }
 exports.buildNumPr = buildNumPr;
 function buildSuperscriptTextStyle() {
-    return {
-        "w:vertAlign": [],
-        ...XML.buildAttributes({ "w:val": "superscript" })
-    };
+    return XML.Node.build("w:vertAlign").setAttr("w:val", "superscript");
 }
 exports.buildSuperscriptTextStyle = buildSuperscriptTextStyle;
 function buildParagraphTextTag(text, styles) {
-    let result = {
-        "w:r": [
-            {
-                "w:t": [XML.buildTextNode(text)],
-                ...XML.buildAttributes({ "xml:space": "preserve" })
-            }
-        ]
-    };
+    let result = XML.Node.build("w:r").insertChildren([
+        XML.Node.build("w:t")
+            .setAttr("xml:space", "preserve")
+            .insertChildren([
+            XML.Node.buildTextNode(text)
+        ])
+    ]);
     if (styles) {
-        result["w:r"].unshift({
-            "w:rPr": styles
-        });
+        result.unshiftChild(XML.Node.build("w:rPr").insertChildren(styles));
     }
     return result;
 }
