@@ -6,8 +6,8 @@ export function getDocumentBody(document: XML.Node): XML.Node {
 }
 
 export function buildParagraphWithStyle(style: string): XML.Node {
-    return XML.Node.build("w:p").insertChildren([
-        XML.Node.build("w:pPr").insertChildren([
+    return XML.Node.build("w:p").appendChildren([
+        XML.Node.build("w:pPr").appendChildren([
             XML.Node.build("w:pStyle").setAttr("w:val", style)
         ])
     ])
@@ -19,7 +19,7 @@ export function buildNumPr(ilvl: string, numId: string): XML.Node {
     //    <w:numId w:val="<numId>"/>
     // </w:numPr>
 
-    return XML.Node.build("w:numPr").insertChildren([
+    return XML.Node.build("w:numPr").appendChildren([
         XML.Node.build("w:ilvl").setAttr("w:val", "0"),
         XML.Node.build("w:numId").setAttr("w:val", numId),
     ])
@@ -30,16 +30,16 @@ export function buildSuperscriptTextStyle(): XML.Node {
 }
 
 export function buildParagraphTextTag(text: string, styles?: XML.Node[]): XML.Node {
-    let result = XML.Node.build("w:r").insertChildren([
+    let result = XML.Node.build("w:r").appendChildren([
         XML.Node.build("w:t")
             .setAttr("xml:space", "preserve")
-            .insertChildren([
+            .appendChildren([
                 XML.Node.buildTextNode(text)
             ])
     ])
 
     if(styles) {
-        result.unshiftChild(XML.Node.build("w:rPr").insertChildren(styles))
+        result.unshiftChild(XML.Node.build("w:rPr").appendChildren(styles))
     }
 
     return result

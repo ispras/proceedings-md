@@ -126,7 +126,14 @@ export class Node {
             for (let i = 0; i < path.length; i++) {
                 if (!result.element) return null
                 let tagName = result.getTagName()
-                result.element = result.element[tagName][path[i]]
+                let pathComponent = path[i]
+                let children = result.element[tagName]
+
+                if (pathComponent < 0) {
+                    result.element = children[children.length + pathComponent]
+                } else {
+                    result.element = children[pathComponent]
+                }
             }
 
             if (!result.element) return null
@@ -309,13 +316,30 @@ export class Node {
         return new Node(element)
     }
 
+    static createDocument(args: { [key: string]: string } = {}) {
+        args = Object.assign({
+            version: "1.0",
+            encoding: "UTF-8",
+            standalone: "yes"
+        }, args)
+        let document = this.build(keys.document)
+        document.appendChildren([
+            Node.build("?xml")
+                .setAttrs(args)
+                .appendChildren([
+                    Node.buildTextNode("")
+                ])
+        ])
+        return document
+    }
+
     static buildTextNode(text: string) {
         let element = {}
         element[keys.text] = text
         return new Node(element)
     }
 
-    setAttr(attribute: string, value: any) {
+    setAttr(attribute: string, value: string) {
         this.checkTemporary()
 
         if (!this.element[keys.attributes]) {
@@ -326,20 +350,20 @@ export class Node {
         return this
     }
 
-    setAttrs(attributes: any) {
+    setAttrs(attributes: { [key: string]: string }) {
         this.checkTemporary()
 
         this.element[keys.attributes] = attributes
         return this
     }
 
-    getAttr(attribute: string) {
+    getAttr(attribute: string): string {
         this.checkTemporary()
 
         if (!this.element[keys.attributes]) {
             return undefined
         }
-        return this.element[keys.attributes][attribute]
+        return String(this.element[keys.attributes][attribute])
     }
 
     clearChildren(path: Path = []) {
@@ -350,14 +374,33 @@ export class Node {
         return this
     }
 
-    insertChildren(children: Node[], path: Path = [0]) {
+    insertChildren(children: Node[], path: Path) {
         this.checkTemporary()
 
         let insertIndex = path.pop()
         let parent = this.getChild(path)
         path.push(insertIndex)
 
-        parent.element[parent.getTagName()].splice(insertIndex, 0, ...children.map(child => child.raw()))
+        let lastChildren = parent.element[parent.getTagName()]
+        if (insertIndex < 0) {
+            insertIndex = children.length + insertIndex + 1
+        }
+
+        lastChildren.splice(insertIndex, 0, ...children.map(child => child.raw()))
+        return this
+    }
+
+    appendChildren(children: Node[], path: Path = []) {
+        path.push(-1)
+        this.insertChildren(children, path)
+        path.pop()
+        return this
+    }
+
+    unshiftChildren(children: Node[], path: Path = []) {
+        path.push(0)
+        this.insertChildren(children, path)
+        path.pop()
         return this
     }
 
@@ -409,7 +452,7 @@ export class Node {
     private checkTemporary() {
         if (this.tempDestroyed) {
             throw new Error("Method access to an outdated temporary Node. Make sure to call .shallowCopy() on temporary " +
-                "nodes before accessing them outside your visit/getChildren body scope")
+                "nodes before accessing them outside your visitChildren/visitSubtree body scope")
         }
     }
 
@@ -426,5 +469,38 @@ export class Node {
 
     deepCopy() {
         return new Node(null).assign(this)
+    }
+}
+
+export class Serializable {
+    readXmlString(xmlString: string): this {
+        this.readXml(Node.fromXmlString(xmlString))
+        return this
+    }
+
+    readXml(xml: Node): this {
+        throw new Error("readXml is not implemented")
+        return this
+    }
+
+    toXmlString() {
+        return this.toXml().toXmlString()
+    }
+
+    toXml(): Node {
+        throw new Error("toXml is not implemented")
+    }
+}
+
+export class Wrapper extends Serializable {
+    node: Node | null = null
+
+    readXml(xml: Node): this {
+        this.node = xml
+        return this
+    }
+
+    toXml() {
+        return this.node
     }
 }

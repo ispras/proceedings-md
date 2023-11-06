@@ -22,6 +22,9 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.languages = void 0;
 const path = __importStar(require("path"));
@@ -31,6 +34,9 @@ const pandoc = __importStar(require("./pandoc"));
 const XML = __importStar(require("./xml"));
 const OXML = __importStar(require("./oxml"));
 const pandoc_1 = require("./pandoc");
+const relationships_1 = __importDefault(require("./wrappers/relationships"));
+const content_types_1 = __importDefault(require("./wrappers/content-types"));
+const styles_1 = __importStar(require("./wrappers/styles"));
 const pandocFlags = ["--tab-stop=8"];
 const properDocXmlns = new Map([
     ["xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"],
@@ -45,22 +51,22 @@ const properDocXmlns = new Map([
 ]);
 exports.languages = ["ru", "en"];
 function visitStyleCrossReferences(style, callback) {
-    let basedOnTag = style.getChild("w:basedOn");
+    let basedOnTag = style.node.getChild("w:basedOn");
     if (basedOnTag)
         callback(basedOnTag);
-    let linkTag = style.getChild("w:link");
+    let linkTag = style.node.getChild("w:link");
     if (linkTag)
         callback(linkTag);
-    let nextTag = style.getChild("w:next");
+    let nextTag = style.node.getChild("w:next");
     if (nextTag)
         callback(nextTag);
 }
 function getStyleCrossReferences(styles) {
     let result = [];
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        result.push(style.shallowCopy());
+    for (let style of styles.styles.values()) {
+        result.push(style.node.shallowCopy());
         visitStyleCrossReferences(style, (node) => result.push(node));
-    });
+    }
     return result;
 }
 function getDocStyleUseReferences(doc, result = []) {
@@ -71,28 +77,23 @@ function getDocStyleUseReferences(doc, result = []) {
     });
     return result;
 }
-function extractStyleDefs(styles) {
+function extractTemplateStyles(styles) {
     let result = [];
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        result.push(style.deepCopy());
-    });
-    return result;
-}
-function extractTemplateStyleDefs(styles) {
-    let result = [];
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        if (style.getAttr("w:styleId").startsWith("template-")) {
-            result.push(style.deepCopy());
+    for (let style of styles.styles.values()) {
+        if (style.getId().startsWith("template-")) {
+            result.push(new styles_1.Style().readXml(style.node.deepCopy()));
         }
-    });
+    }
     return result;
 }
 function patchStyleDefinitions(doc, styles, map) {
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        if (style.getAttr("w:styleId") && map.has(style.getAttr("w:styleId"))) {
-            style.setAttr("w:styleId", map.get(style.getAttr("w:styleId")));
+    for (let style of styles.styles.values()) {
+        if (map.has(style.getId())) {
+            styles.removeStyle(style);
+            style.setId(map.get(style.getId()));
+            styles.addStyle(style);
         }
-    });
+    }
 }
 function patchStyleUseReferences(doc, styles, map) {
     let docReferences = getDocStyleUseReferences(doc);
@@ -111,47 +112,37 @@ function getUsedStyles(doc) {
     }
     return set;
 }
-function populateStyles(styles, table) {
-    for (let styleId of styles) {
-        let style = table.get(styleId);
+function populateStyles(alreadyMet, styles) {
+    for (let styleId of alreadyMet) {
+        let style = styles.styles.get(styleId);
         if (!style) {
             throw new Error("Style id " + styleId + " not found");
         }
-        visitStyleCrossReferences(style, (node) => {
-            styles.add(node.getAttr("w:val"));
-        });
+        if (style.getBaseStyle() !== null)
+            alreadyMet.add(style.getBaseStyle());
+        if (style.getLinkedStyle() !== null)
+            alreadyMet.add(style.getLinkedStyle());
+        if (style.getNextStyle() !== null)
+            alreadyMet.add(style.getNextStyle());
     }
 }
-function getUsedStylesDeep(doc, styleTable, requiredStyles = []) {
+function getUsedStylesDeep(doc, styles, requiredStyles = []) {
     let usedStyles = getUsedStyles(doc);
     for (let requiredStyle of requiredStyles) {
         usedStyles.add(requiredStyle);
     }
     do {
         let size = usedStyles.size;
-        populateStyles(usedStyles, styleTable);
+        populateStyles(usedStyles, styles);
         if (usedStyles.size == size)
             break;
     } while (true);
     return usedStyles;
 }
-function getStyleTable(styles) {
-    let table = new Map();
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        table.set(style.getAttr("w:styleId"), style.shallowCopy());
-    });
-    return table;
-}
-function getStyleIdsByName(document) {
-    return getStyleIdsByNameFromDefs(extractStyleDefs(document));
-}
-function getStyleIdsByNameFromDefs(styles) {
+function getStyleIdsByName(styles) {
     let table = new Map();
     for (let style of styles) {
-        let nameNode = style.getChild("w:name");
-        if (nameNode) {
-            table.set(nameNode.getAttr("w:val"), style.getAttr("w:styleId"));
-        }
+        table.set(style.getName(), style.getId());
     }
     return table;
 }
@@ -219,23 +210,17 @@ function applyListStyles(doc, styles) {
 }
 function removeCollidedStyles(styles, collisions) {
     let ignored = 0;
-    let newChildren = [];
-    styles.getChild("w:styles").visitChildren((style) => {
-        if (style.getTagName() !== "w:style" || !collisions.has(style.getAttr("w:styleId"))) {
-            newChildren.push(style.shallowCopy());
+    for (let style of styles.styles.values()) {
+        if (collisions.has(style.getId())) {
+            styles.removeStyle(style);
         }
-    });
-    styles.getChild("w:styles").clearChildren().insertChildren(newChildren);
+    }
 }
 function copyLatentStyles(source, target) {
-    let sourceLatentStyles = source.getChild("w:styles").getChild("w:latentStyles");
-    let targetLatentStyles = target.getChild("w:styles").getChild("w:latentStyles");
-    targetLatentStyles.assign(sourceLatentStyles);
+    source.node.assign(target.node);
 }
 function copyDocDefaults(source, target) {
-    let sourceDocDefaults = source.getChild("w:styles").getChild("w:docDefaults");
-    let targetDocDefaults = target.getChild("w:styles").getChild("w:docDefaults");
-    targetDocDefaults.assign(sourceDocDefaults);
+    source.node.assign(target.node);
 }
 async function copyFile(source, target, path) {
     target.file(path, await source.file(path).async("arraybuffer"));
@@ -250,45 +235,17 @@ function addNewNumberings(targetNumberingParsed, newListStyles) {
         for (let i = 0; i < 9; i++) {
             overrides.push(XML.Node.build("w:lvlOverride")
                 .setAttr("w:ilvl", String(i))
-                .insertChildren([
+                .appendChildren([
                 XML.Node.build("w:startOverride").setAttr("w:val", "1")
             ]));
         }
         numberingTag.pushChild(XML.Node.build("w:num")
             .setAttr("w:numId", newNum)
-            .insertChildren([
+            .appendChildren([
             XML.Node.build("w:abstractNumId").setAttr("w:val", oldNum),
             ...overrides
         ]));
     }
-}
-function addContentType(contentTypes, partName, contentType) {
-    contentTypes.getChild("Types").pushChild(XML.Node.build("Override")
-        .setAttr("PartName", partName)
-        .setAttr("ContentType", contentType));
-}
-function transferRels(source, target) {
-    let sourceRels = source.getChild("Relationships");
-    let targetRels = target.getChild("Relationships");
-    let presentIds = new Map();
-    let idMap = new Map();
-    targetRels.visitChildren((rel) => {
-        presentIds.set(rel.getAttr("Target"), rel.getAttr("Id"));
-    });
-    let newIdCounter = 0;
-    sourceRels.visitChildren((rel) => {
-        if (presentIds.has(rel.getAttr("Target"))) {
-            idMap.set(rel.getAttr("Id"), presentIds.get(rel.getAttr("Target")));
-        }
-        else {
-            let newId = "template-id-" + (newIdCounter++);
-            let relCopy = rel.deepCopy();
-            relCopy.setAttr("Id", newId);
-            targetRels.pushChild(relCopy);
-            idMap.set(rel.getAttr("Id"), newId);
-        }
-    });
-    return idMap;
 }
 function getParagraphText(paragraph) {
     let result = "";
@@ -489,23 +446,30 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
     let sourceHeader1 = await source.file("word/header1.xml").async("string");
     let sourceHeader2 = await source.file("word/header2.xml").async("string");
     let sourceHeader3 = await source.file("word/header3.xml").async("string");
-    let targetContentTypesParsed = XML.Node.fromXmlString(targetContentTypesXML);
-    let targetDocumentRelsParsed = XML.Node.fromXmlString(targetDocumentRelsXML);
-    let sourceDocumentRelsParsed = XML.Node.fromXmlString(sourceDocumentRelsXML);
-    let sourceStylesParsed = XML.Node.fromXmlString(sourceStylesXML);
-    let targetStylesParsed = XML.Node.fromXmlString(targetStylesXML);
+    let sourceStyles = new styles_1.default().readXmlString(sourceStylesXML);
+    let targetStyles = new styles_1.default().readXmlString(targetStylesXML);
     let sourceDocParsed = XML.Node.fromXmlString(sourceDocXML);
     let targetDocParsed = XML.Node.fromXmlString(targetDocXML);
     let targetNumberingParsed = XML.Node.fromXmlString(targetNumberingXML);
     let sourceHeader1Parsed = XML.Node.fromXmlString(sourceHeader1);
     let sourceHeader2Parsed = XML.Node.fromXmlString(sourceHeader2);
     let sourceHeader3Parsed = XML.Node.fromXmlString(sourceHeader3);
-    copyLatentStyles(sourceStylesParsed, targetStylesParsed);
-    copyDocDefaults(sourceStylesParsed, targetStylesParsed);
-    let targetStylesNamesToId = getStyleIdsByName(targetStylesParsed);
-    let sourceStylesNamesToId = getStyleIdsByName(sourceStylesParsed);
-    let sourceStyleTable = getStyleTable(sourceStylesParsed);
-    let usedStyles = getUsedStylesDeep(sourceDocParsed, sourceStyleTable, [
+    // Transferring the content types
+    let targetContentTypes = new content_types_1.default().readXmlString(targetContentTypesXML);
+    let sourceContentTypes = new content_types_1.default().readXmlString(targetContentTypesXML);
+    targetContentTypes.join(sourceContentTypes);
+    target.file("[Content_Types].xml", targetContentTypes.toXmlString());
+    // Transferring the document relations
+    let targetDocumentRels = new relationships_1.default().readXmlString(targetDocumentRelsXML);
+    let sourceDocumentRels = new relationships_1.default().readXmlString(sourceDocumentRelsXML);
+    let relMap = targetDocumentRels.join(sourceDocumentRels);
+    patchRelIds(sourceDocParsed, relMap);
+    target.file("word/_rels/document.xml.rels", targetDocumentRels.toXMLString());
+    copyLatentStyles(sourceStyles.latentStyles, targetStyles.latentStyles);
+    copyDocDefaults(sourceStyles.docDefaults, targetStyles.docDefaults);
+    let targetStylesNamesToId = getStyleIdsByName(targetStyles.styles.values());
+    let sourceStylesNamesToId = getStyleIdsByName(sourceStyles.styles.values());
+    let usedStyles = getUsedStylesDeep(sourceDocParsed, sourceStyles, [
         "ispSubHeader-1 level",
         "ispSubHeader-2 level",
         "ispSubHeader-3 level",
@@ -521,10 +485,10 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
         "Normal"
     ].map(name => sourceStylesNamesToId.get(name)));
     let mappingTable = getMappingTable(usedStyles);
-    patchStyleDefinitions(sourceDocParsed, sourceStylesParsed, mappingTable);
-    patchStyleUseReferences(sourceDocParsed, sourceStylesParsed, mappingTable);
-    let extractedDefs = extractTemplateStyleDefs(sourceStylesParsed);
-    let extractedStyleIdsByName = getStyleIdsByNameFromDefs(extractedDefs);
+    patchStyleDefinitions(sourceDocParsed, sourceStyles, mappingTable);
+    patchStyleUseReferences(sourceDocParsed, sourceStyles, mappingTable);
+    let extractedDefs = extractTemplateStyles(sourceStyles);
+    let extractedStyleIdsByName = getStyleIdsByName(extractedDefs);
     let stylePatch = new Map([
         ["Heading1", extractedStyleIdsByName.get("ispSubHeader-1 level")],
         ["Heading2", extractedStyleIdsByName.get("ispSubHeader-2 level")],
@@ -559,9 +523,11 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
             stylesToRemove.add(targetStyleId);
         }
     }
-    removeCollidedStyles(targetStylesParsed, stylesToRemove);
-    appendStyles(targetStylesParsed, extractedDefs);
-    patchStyleUseReferences(targetDocParsed, targetStylesParsed, stylePatch);
+    removeCollidedStyles(targetStyles, stylesToRemove);
+    for (let style of extractedDefs) {
+        targetStyles.addStyle(style);
+    }
+    patchStyleUseReferences(targetDocParsed, targetStyles, stylePatch);
     let patchRules = {
         "OrderedList": { styleName: extractedStyleIdsByName.get("ispNumList"), numId: "33" },
         "BulletList": { styleName: extractedStyleIdsByName.get("ispList1"), numId: "43" },
@@ -569,18 +535,10 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
     };
     let newListStyles = applyListStyles(targetDocParsed, patchRules);
     setXmlns(sourceDocParsed, properDocXmlns);
-    let relMap = transferRels(sourceDocumentRelsParsed, targetDocumentRelsParsed);
-    patchRelIds(sourceDocParsed, relMap);
     targetDocParsed = replaceTemplates(sourceDocParsed, OXML.getDocumentBody(targetDocParsed), meta);
     templateReplaceLinks(OXML.getDocumentBody(targetDocParsed), meta, patchRules);
     addNewNumberings(targetNumberingParsed, newListStyles);
     replacePageHeaders([sourceHeader1Parsed, sourceHeader2Parsed, sourceHeader3Parsed], meta);
-    addContentType(targetContentTypesParsed, "/word/footer1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
-    addContentType(targetContentTypesParsed, "/word/footer2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
-    addContentType(targetContentTypesParsed, "/word/footer3.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml");
-    addContentType(targetContentTypesParsed, "/word/header1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml");
-    addContentType(targetContentTypesParsed, "/word/header2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml");
-    addContentType(targetContentTypesParsed, "/word/header3.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml");
     await copyFile(source, target, "word/_rels/header1.xml.rels");
     await copyFile(source, target, "word/_rels/header2.xml.rels");
     await copyFile(source, target, "word/_rels/header3.xml.rels");
@@ -599,12 +557,16 @@ async function fixDocxStyles(sourcePath, targetPath, meta) {
     target.file("word/header1.xml", sourceHeader1Parsed.toXmlString());
     target.file("word/header2.xml", sourceHeader2Parsed.toXmlString());
     target.file("word/header3.xml", sourceHeader3Parsed.toXmlString());
-    target.file("word/_rels/document.xml.rels", targetDocumentRelsParsed.toXmlString());
-    target.file("[Content_Types].xml", targetContentTypesParsed.toXmlString());
     target.file("word/numbering.xml", targetNumberingParsed.toXmlString());
-    target.file("word/styles.xml", targetStylesParsed.toXmlString());
+    target.file("word/styles.xml", targetStyles.toXmlString());
     target.file("word/document.xml", targetDocParsed.toXmlString());
     fs.writeFileSync(targetPath, await target.generateAsync({ type: "uint8array" }));
+}
+function getOpenxmlInjection(xml) {
+    return {
+        t: "RawBlock",
+        c: ["openxml", xml]
+    };
 }
 function fixCompactLists(list) {
     // For compact list, 'para' is replaced with 'plain'.
@@ -618,33 +580,24 @@ function fixCompactLists(list) {
         list.c[i] = getPatchedMetaElement(list.c[i]);
     }
     return [
-        {
-            t: "RawBlock",
-            c: ["openxml", `<!-- ListMode ${list.t} -->`]
-        },
+        getOpenxmlInjection(`<!-- ListMode ${list.t} -->`),
         list,
-        {
-            t: "RawBlock",
-            c: ["openxml", `<!-- ListMode None -->`]
-        }
+        getOpenxmlInjection(`<!-- ListMode None -->`)
     ];
 }
 function getImageCaption(content) {
-    let paragraph = XML.Node.build("w:p").insertChildren([
-        XML.Node.build("w:pPr").insertChildren([
+    let paragraph = XML.Node.build("w:p").appendChildren([
+        XML.Node.build("w:pPr").appendChildren([
             XML.Node.build("w:pStyle").setAttr("w:val", "ImageCaption"),
             XML.Node.build("w:contextualSpacing").setAttr("w:val", "true"),
         ]),
         OXML.buildParagraphTextTag(pandoc.getMetaString(content))
     ]);
-    return {
-        t: "RawBlock",
-        c: ["openxml", paragraph.toXmlString()]
-    };
+    return getOpenxmlInjection(paragraph.toXmlString());
 }
 function getListingCaption(content) {
-    let elements = XML.Node.build("w:p").insertChildren([
-        XML.Node.build("w:pPr").insertChildren([
+    let elements = XML.Node.build("w:p").appendChildren([
+        XML.Node.build("w:pPr").appendChildren([
             XML.Node.build("w:pStyle").setAttr("w:val", "BodyText"),
             XML.Node.build("w:jc").setAttr("w:val", "left"),
         ]),
@@ -655,10 +608,7 @@ function getListingCaption(content) {
             XML.Node.build("w:szCs").setAttr("w:val", "18"),
         ])
     ]);
-    return {
-        t: "RawBlock",
-        c: ["openxml", elements.toXmlString()]
-    };
+    return getOpenxmlInjection(elements.toXmlString());
 }
 function getPatchedMetaElement(element) {
     if (Array.isArray(element)) {

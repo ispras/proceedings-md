@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Node = exports.builder = exports.parser = exports.keys = void 0;
+exports.Wrapper = exports.Serializable = exports.Node = exports.builder = exports.parser = exports.keys = void 0;
 const fast_xml_parser_1 = require("fast-xml-parser");
 exports.keys = {
     comment: "__comment__",
@@ -104,7 +104,14 @@ class Node {
                 if (!result.element)
                     return null;
                 let tagName = result.getTagName();
-                result.element = result.element[tagName][path[i]];
+                let pathComponent = path[i];
+                let children = result.element[tagName];
+                if (pathComponent < 0) {
+                    result.element = children[children.length + pathComponent];
+                }
+                else {
+                    result.element = children[pathComponent];
+                }
             }
             if (!result.element)
                 return null;
@@ -236,6 +243,22 @@ class Node {
         element[tagName] = [];
         return new Node(element);
     }
+    static createDocument(args = {}) {
+        args = Object.assign({
+            version: "1.0",
+            encoding: "UTF-8",
+            standalone: "yes"
+        }, args);
+        let document = this.build(exports.keys.document);
+        document.appendChildren([
+            Node.build("?xml")
+                .setAttrs(args)
+                .appendChildren([
+                Node.buildTextNode("")
+            ])
+        ]);
+        return document;
+    }
     static buildTextNode(text) {
         let element = {};
         element[exports.keys.text] = text;
@@ -259,7 +282,7 @@ class Node {
         if (!this.element[exports.keys.attributes]) {
             return undefined;
         }
-        return this.element[exports.keys.attributes][attribute];
+        return String(this.element[exports.keys.attributes][attribute]);
     }
     clearChildren(path = []) {
         this.checkTemporary();
@@ -267,12 +290,28 @@ class Node {
         parent.element[parent.getTagName()] = [];
         return this;
     }
-    insertChildren(children, path = [0]) {
+    insertChildren(children, path) {
         this.checkTemporary();
         let insertIndex = path.pop();
         let parent = this.getChild(path);
         path.push(insertIndex);
-        parent.element[parent.getTagName()].splice(insertIndex, 0, ...children.map(child => child.raw()));
+        let lastChildren = parent.element[parent.getTagName()];
+        if (insertIndex < 0) {
+            insertIndex = children.length + insertIndex + 1;
+        }
+        lastChildren.splice(insertIndex, 0, ...children.map(child => child.raw()));
+        return this;
+    }
+    appendChildren(children, path = []) {
+        path.push(-1);
+        this.insertChildren(children, path);
+        path.pop();
+        return this;
+    }
+    unshiftChildren(children, path = []) {
+        path.push(0);
+        this.insertChildren(children, path);
+        path.pop();
         return this;
     }
     assign(another) {
@@ -317,7 +356,7 @@ class Node {
     checkTemporary() {
         if (this.tempDestroyed) {
             throw new Error("Method access to an outdated temporary Node. Make sure to call .shallowCopy() on temporary " +
-                "nodes before accessing them outside your visit/getChildren body scope");
+                "nodes before accessing them outside your visitChildren/visitSubtree body scope");
         }
     }
     markDestroyed() {
@@ -333,4 +372,32 @@ class Node {
     }
 }
 exports.Node = Node;
+class Serializable {
+    readXmlString(xmlString) {
+        this.readXml(Node.fromXmlString(xmlString));
+        return this;
+    }
+    readXml(xml) {
+        throw new Error("readXml is not implemented");
+        return this;
+    }
+    toXmlString() {
+        return this.toXml().toXmlString();
+    }
+    toXml() {
+        throw new Error("toXml is not implemented");
+    }
+}
+exports.Serializable = Serializable;
+class Wrapper extends Serializable {
+    node = null;
+    readXml(xml) {
+        this.node = xml;
+        return this;
+    }
+    toXml() {
+        return this.node;
+    }
+}
+exports.Wrapper = Wrapper;
 //# sourceMappingURL=xml.js.map

@@ -30,8 +30,8 @@ function getDocumentBody(document) {
 }
 exports.getDocumentBody = getDocumentBody;
 function buildParagraphWithStyle(style) {
-    return XML.Node.build("w:p").insertChildren([
-        XML.Node.build("w:pPr").insertChildren([
+    return XML.Node.build("w:p").appendChildren([
+        XML.Node.build("w:pPr").appendChildren([
             XML.Node.build("w:pStyle").setAttr("w:val", style)
         ])
     ]);
@@ -42,7 +42,7 @@ function buildNumPr(ilvl, numId) {
     //    <w:ilvl w:val="<ilvl>"/>
     //    <w:numId w:val="<numId>"/>
     // </w:numPr>
-    return XML.Node.build("w:numPr").insertChildren([
+    return XML.Node.build("w:numPr").appendChildren([
         XML.Node.build("w:ilvl").setAttr("w:val", "0"),
         XML.Node.build("w:numId").setAttr("w:val", numId),
     ]);
@@ -53,15 +53,15 @@ function buildSuperscriptTextStyle() {
 }
 exports.buildSuperscriptTextStyle = buildSuperscriptTextStyle;
 function buildParagraphTextTag(text, styles) {
-    let result = XML.Node.build("w:r").insertChildren([
+    let result = XML.Node.build("w:r").appendChildren([
         XML.Node.build("w:t")
             .setAttr("xml:space", "preserve")
-            .insertChildren([
+            .appendChildren([
             XML.Node.buildTextNode(text)
         ])
     ]);
     if (styles) {
-        result.unshiftChild(XML.Node.build("w:rPr").insertChildren(styles));
+        result.unshiftChild(XML.Node.build("w:rPr").appendChildren(styles));
     }
     return result;
 }

@@ -1,12 +1,13 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as JSZip from 'jszip';
-import {XMLParser, XMLBuilder, XMLValidator} from 'fast-xml-parser';
-import {spawn} from "child_process";
 import * as pandoc from "./pandoc";
 import * as XML from "./xml";
 import * as OXML from "./oxml";
 import {DocumentMeta} from "./pandoc";
+import Relationships from "./wrappers/relationships";
+import ContentTypes from "./wrappers/content-types";
+import Styles, {DocDefaults, LatentStyles, Style} from "./wrappers/styles";
 
 const pandocFlags = ["--tab-stop=8"]
 
@@ -24,23 +25,23 @@ const properDocXmlns = new Map<string, string>([
 
 export const languages = ["ru", "en"]
 
-function visitStyleCrossReferences(style: XML.Node, callback: (node: XML.Node) => void) {
-    let basedOnTag = style.getChild("w:basedOn")
+function visitStyleCrossReferences(style: Style, callback: (node: XML.Node) => void) {
+    let basedOnTag = style.node.getChild("w:basedOn")
     if (basedOnTag) callback(basedOnTag)
 
-    let linkTag = style.getChild("w:link")
+    let linkTag = style.node.getChild("w:link")
     if (linkTag) callback(linkTag)
 
-    let nextTag = style.getChild("w:next")
+    let nextTag = style.node.getChild("w:next")
     if (nextTag) callback(nextTag)
 }
 
-function getStyleCrossReferences(styles: XML.Node): XML.Node[] {
+function getStyleCrossReferences(styles: Styles): XML.Node[] {
     let result = []
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        result.push(style.shallowCopy())
+    for(let style of styles.styles.values()) {
+        result.push(style.node.shallowCopy())
         visitStyleCrossReferences(style, (node) => result.push(node))
-    })
+    }
     return result
 }
 
@@ -55,33 +56,27 @@ function getDocStyleUseReferences(doc: XML.Node, result: XML.Node[] = []): XML.N
     return result
 }
 
-function extractStyleDefs(styles: XML.Node): XML.Node[] {
+function extractTemplateStyles(styles: Styles): Style[] {
     let result = []
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        result.push(style.deepCopy())
-    })
+    for(let style of styles.styles.values()) {
+        if (style.getId().startsWith("template-")) {
+            result.push(new Style().readXml(style.node.deepCopy()))
+        }
+    }
     return result
 }
 
-function extractTemplateStyleDefs(styles: XML.Node): XML.Node[] {
-    let result = []
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        if (style.getAttr("w:styleId").startsWith("template-")) {
-            result.push(style.deepCopy())
+function patchStyleDefinitions(doc: XML.Node, styles: Styles, map: Map<string, string>) {
+    for(let style of styles.styles.values()) {
+        if(map.has(style.getId())) {
+            styles.removeStyle(style)
+            style.setId(map.get(style.getId()))
+            styles.addStyle(style)
         }
-    })
-    return result
+    }
 }
 
-function patchStyleDefinitions(doc: XML.Node, styles: XML.Node, map: Map<string, string>) {
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        if (style.getAttr("w:styleId") && map.has(style.getAttr("w:styleId"))) {
-            style.setAttr("w:styleId", map.get(style.getAttr("w:styleId")))
-        }
-    })
-}
-
-function patchStyleUseReferences(doc: XML.Node, styles: XML.Node, map: Map<string, string>) {
+function patchStyleUseReferences(doc: XML.Node, styles: Styles, map: Map<string, string>) {
     let docReferences = getDocStyleUseReferences(doc)
     let crossReferences = getStyleCrossReferences(styles)
 
@@ -103,21 +98,21 @@ function getUsedStyles(doc: XML.Node): Set<string> {
     return set
 }
 
-function populateStyles(styles: Set<string>, table: Map<string, XML.Node>) {
-    for (let styleId of styles) {
-        let style = table.get(styleId)
+function populateStyles(alreadyMet: Set<string>, styles: Styles) {
+    for (let styleId of alreadyMet) {
+        let style = styles.styles.get(styleId)
 
         if (!style) {
             throw new Error("Style id " + styleId + " not found")
         }
 
-        visitStyleCrossReferences(style, (node) => {
-            styles.add(node.getAttr("w:val"))
-        })
+        if(style.getBaseStyle() !== null) alreadyMet.add(style.getBaseStyle())
+        if(style.getLinkedStyle() !== null) alreadyMet.add(style.getLinkedStyle())
+        if(style.getNextStyle() !== null) alreadyMet.add(style.getNextStyle())
     }
 }
 
-function getUsedStylesDeep(doc: XML.Node, styleTable: Map<string, XML.Node>, requiredStyles: string[] = []): Set<string> {
+function getUsedStylesDeep(doc: XML.Node, styles: Styles, requiredStyles: string[] = []): Set<string> {
     let usedStyles = getUsedStyles(doc)
 
     for (let requiredStyle of requiredStyles) {
@@ -126,36 +121,18 @@ function getUsedStylesDeep(doc: XML.Node, styleTable: Map<string, XML.Node>, req
 
     do {
         let size = usedStyles.size
-        populateStyles(usedStyles, styleTable)
+        populateStyles(usedStyles, styles)
         if (usedStyles.size == size) break;
     } while (true);
 
     return usedStyles
 }
 
-function getStyleTable(styles: XML.Node): Map<string, XML.Node> {
-    let table = new Map<string, XML.Node>()
-
-    styles.getChild("w:styles").visitChildren("w:style", (style) => {
-        table.set(style.getAttr("w:styleId"), style.shallowCopy())
-    })
-
-    return table
-}
-
-function getStyleIdsByName(document: XML.Node): Map<string, string> {
-    return getStyleIdsByNameFromDefs(extractStyleDefs(document))
-}
-
-function getStyleIdsByNameFromDefs(styles: XML.Node[]): Map<string, string> {
+function getStyleIdsByName(styles: Iterable<Style>): Map<string, string> {
     let table = new Map<string, any>()
 
     for (let style of styles) {
-        let nameNode = style.getChild("w:name")
-
-        if (nameNode) {
-            table.set(nameNode.getAttr("w:val"), style.getAttr("w:styleId"))
-        }
+        table.set(style.getName(), style.getId())
     }
 
     return table
@@ -251,31 +228,22 @@ function applyListStyles(doc: XML.Node, styles: ListStyles): Map<string, string>
     return newStyles
 }
 
-function removeCollidedStyles(styles: XML.Node, collisions: Set<string>) {
+function removeCollidedStyles(styles: Styles, collisions: Set<string>) {
     let ignored = 0
-    let newChildren = []
 
-    styles.getChild("w:styles").visitChildren((style) => {
-        if (style.getTagName() !== "w:style" || !collisions.has(style.getAttr("w:styleId"))) {
-            newChildren.push(style.shallowCopy())
+    for(let style of styles.styles.values()) {
+        if(collisions.has(style.getId())) {
+            styles.removeStyle(style)
         }
-    })
-
-    styles.getChild("w:styles").clearChildren().insertChildren(newChildren)
+    }
 }
 
-function copyLatentStyles(source: XML.Node, target: XML.Node) {
-    let sourceLatentStyles = source.getChild("w:styles").getChild("w:latentStyles")
-    let targetLatentStyles = target.getChild("w:styles").getChild("w:latentStyles")
-
-    targetLatentStyles.assign(sourceLatentStyles)
+function copyLatentStyles(source: LatentStyles, target: LatentStyles) {
+    source.node.assign(target.node)
 }
 
-function copyDocDefaults(source, target) {
-    let sourceDocDefaults = source.getChild("w:styles").getChild("w:docDefaults")
-    let targetDocDefaults = target.getChild("w:styles").getChild("w:docDefaults")
-
-    targetDocDefaults.assign(sourceDocDefaults)
+function copyDocDefaults(source: DocDefaults, target: DocDefaults) {
+    source.node.assign(target.node)
 }
 
 async function copyFile(source, target, path) {
@@ -296,7 +264,7 @@ function addNewNumberings(targetNumberingParsed: XML.Node, newListStyles: Map<st
             overrides.push(
                 XML.Node.build("w:lvlOverride")
                     .setAttr("w:ilvl", String(i))
-                    .insertChildren([
+                    .appendChildren([
                         XML.Node.build("w:startOverride").setAttr("w:val", "1")
                     ])
             )
@@ -305,47 +273,11 @@ function addNewNumberings(targetNumberingParsed: XML.Node, newListStyles: Map<st
         numberingTag.pushChild(
             XML.Node.build("w:num")
                 .setAttr("w:numId", newNum)
-                .insertChildren([
+                .appendChildren([
                     XML.Node.build("w:abstractNumId").setAttr("w:val", oldNum),
                     ...overrides
                 ]));
     }
-}
-
-function addContentType(contentTypes: XML.Node, partName: string, contentType: string) {
-    contentTypes.getChild("Types").pushChild(
-        XML.Node.build("Override")
-            .setAttr("PartName", partName)
-            .setAttr("ContentType", contentType)
-    )
-}
-
-function transferRels(source: XML.Node, target: XML.Node): Map<string, string> {
-    let sourceRels = source.getChild("Relationships")
-    let targetRels = target.getChild("Relationships")
-
-    let presentIds = new Map<string, string>()
-    let idMap = new Map<string, string>()
-
-    targetRels.visitChildren((rel) => {
-        presentIds.set(rel.getAttr("Target"), rel.getAttr("Id"))
-    })
-
-    let newIdCounter = 0
-
-    sourceRels.visitChildren((rel) => {
-        if (presentIds.has(rel.getAttr("Target"))) {
-            idMap.set(rel.getAttr("Id"), presentIds.get(rel.getAttr("Target")))
-        } else {
-            let newId = "template-id-" + (newIdCounter++)
-            let relCopy = rel.deepCopy()
-            relCopy.setAttr("Id", newId)
-            targetRels.pushChild(relCopy)
-            idMap.set(rel.getAttr("Id"), newId)
-        }
-    })
-
-    return idMap
 }
 
 function getParagraphText(paragraph: XML.Node): string {
@@ -612,11 +544,9 @@ async function fixDocxStyles(sourcePath: string, targetPath: string, meta: Docum
     let sourceHeader2 = await source.file("word/header2.xml").async("string");
     let sourceHeader3 = await source.file("word/header3.xml").async("string");
 
-    let targetContentTypesParsed = XML.Node.fromXmlString(targetContentTypesXML);
-    let targetDocumentRelsParsed = XML.Node.fromXmlString(targetDocumentRelsXML);
-    let sourceDocumentRelsParsed = XML.Node.fromXmlString(sourceDocumentRelsXML);
-    let sourceStylesParsed = XML.Node.fromXmlString(sourceStylesXML);
-    let targetStylesParsed = XML.Node.fromXmlString(targetStylesXML);
+    let sourceStyles = new Styles().readXmlString(sourceStylesXML);
+    let targetStyles = new Styles().readXmlString(targetStylesXML);
+
     let sourceDocParsed = XML.Node.fromXmlString(sourceDocXML);
     let targetDocParsed = XML.Node.fromXmlString(targetDocXML);
     let targetNumberingParsed = XML.Node.fromXmlString(targetNumberingXML);
@@ -624,15 +554,26 @@ async function fixDocxStyles(sourcePath: string, targetPath: string, meta: Docum
     let sourceHeader2Parsed = XML.Node.fromXmlString(sourceHeader2)
     let sourceHeader3Parsed = XML.Node.fromXmlString(sourceHeader3)
 
-    copyLatentStyles(sourceStylesParsed, targetStylesParsed)
-    copyDocDefaults(sourceStylesParsed, targetStylesParsed)
+    // Transferring the content types
+    let targetContentTypes = new ContentTypes().readXmlString(targetContentTypesXML);
+    let sourceContentTypes = new ContentTypes().readXmlString(targetContentTypesXML);
+    targetContentTypes.join(sourceContentTypes)
+    target.file("[Content_Types].xml", targetContentTypes.toXmlString())
 
-    let targetStylesNamesToId = getStyleIdsByName(targetStylesParsed);
-    let sourceStylesNamesToId = getStyleIdsByName(sourceStylesParsed);
+    // Transferring the document relations
+    let targetDocumentRels = new Relationships().readXmlString(targetDocumentRelsXML);
+    let sourceDocumentRels = new Relationships().readXmlString(sourceDocumentRelsXML);
+    let relMap = targetDocumentRels.join(sourceDocumentRels)
+    patchRelIds(sourceDocParsed, relMap)
+    target.file("word/_rels/document.xml.rels", targetDocumentRels.toXMLString())
 
-    let sourceStyleTable = getStyleTable(sourceStylesParsed)
+    copyLatentStyles(sourceStyles.latentStyles, targetStyles.latentStyles)
+    copyDocDefaults(sourceStyles.docDefaults, targetStyles.docDefaults)
 
-    let usedStyles = getUsedStylesDeep(sourceDocParsed, sourceStyleTable, [
+    let targetStylesNamesToId = getStyleIdsByName(targetStyles.styles.values());
+    let sourceStylesNamesToId = getStyleIdsByName(sourceStyles.styles.values());
+
+    let usedStyles = getUsedStylesDeep(sourceDocParsed, sourceStyles, [
         "ispSubHeader-1 level",
         "ispSubHeader-2 level",
         "ispSubHeader-3 level",
@@ -649,10 +590,11 @@ async function fixDocxStyles(sourcePath: string, targetPath: string, meta: Docum
     ].map(name => sourceStylesNamesToId.get(name)))
     let mappingTable = getMappingTable(usedStyles)
 
-    patchStyleDefinitions(sourceDocParsed, sourceStylesParsed, mappingTable)
-    patchStyleUseReferences(sourceDocParsed, sourceStylesParsed, mappingTable)
-    let extractedDefs = extractTemplateStyleDefs(sourceStylesParsed)
-    let extractedStyleIdsByName = getStyleIdsByNameFromDefs(extractedDefs)
+    patchStyleDefinitions(sourceDocParsed, sourceStyles, mappingTable)
+    patchStyleUseReferences(sourceDocParsed, sourceStyles, mappingTable)
+
+    let extractedDefs = extractTemplateStyles(sourceStyles)
+    let extractedStyleIdsByName = getStyleIdsByName(extractedDefs)
 
     let stylePatch = new Map<string, string>([
         ["Heading1", extractedStyleIdsByName.get("ispSubHeader-1 level")],
@@ -693,11 +635,12 @@ async function fixDocxStyles(sourcePath: string, targetPath: string, meta: Docum
         }
     }
 
-    removeCollidedStyles(targetStylesParsed, stylesToRemove)
+    removeCollidedStyles(targetStyles, stylesToRemove)
+    for(let style of extractedDefs) {
+        targetStyles.addStyle(style)
+    }
 
-    appendStyles(targetStylesParsed, extractedDefs)
-
-    patchStyleUseReferences(targetDocParsed, targetStylesParsed, stylePatch)
+    patchStyleUseReferences(targetDocParsed, targetStyles, stylePatch)
 
     let patchRules = {
         "OrderedList": {styleName: extractedStyleIdsByName.get("ispNumList"), numId: "33"},
@@ -709,9 +652,6 @@ async function fixDocxStyles(sourcePath: string, targetPath: string, meta: Docum
 
     setXmlns(sourceDocParsed, properDocXmlns)
 
-    let relMap = transferRels(sourceDocumentRelsParsed, targetDocumentRelsParsed)
-    patchRelIds(sourceDocParsed, relMap)
-
     targetDocParsed = replaceTemplates(sourceDocParsed, OXML.getDocumentBody(targetDocParsed), meta)
 
     templateReplaceLinks(OXML.getDocumentBody(targetDocParsed), meta, patchRules)
@@ -719,13 +659,6 @@ async function fixDocxStyles(sourcePath: string, targetPath: string, meta: Docum
     addNewNumberings(targetNumberingParsed, newListStyles)
 
     replacePageHeaders([sourceHeader1Parsed, sourceHeader2Parsed, sourceHeader3Parsed], meta)
-
-    addContentType(targetContentTypesParsed, "/word/footer1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
-    addContentType(targetContentTypesParsed, "/word/footer2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
-    addContentType(targetContentTypesParsed, "/word/footer3.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml")
-    addContentType(targetContentTypesParsed, "/word/header1.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml")
-    addContentType(targetContentTypesParsed, "/word/header2.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml")
-    addContentType(targetContentTypesParsed, "/word/header3.xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml")
 
     await copyFile(source, target, "word/_rels/header1.xml.rels")
     await copyFile(source, target, "word/_rels/header2.xml.rels")
@@ -749,10 +682,8 @@ async function fixDocxStyles(sourcePath: string, targetPath: string, meta: Docum
     target.file("word/header2.xml", sourceHeader2Parsed.toXmlString())
     target.file("word/header3.xml", sourceHeader3Parsed.toXmlString())
 
-    target.file("word/_rels/document.xml.rels", targetDocumentRelsParsed.toXmlString())
-    target.file("[Content_Types].xml", targetContentTypesParsed.toXmlString())
     target.file("word/numbering.xml", targetNumberingParsed.toXmlString())
-    target.file("word/styles.xml", targetStylesParsed.toXmlString())
+    target.file("word/styles.xml", targetStyles.toXmlString())
     target.file("word/document.xml", targetDocParsed.toXmlString())
 
     fs.writeFileSync(targetPath, await target.generateAsync({type: "uint8array"}));
@@ -786,8 +717,8 @@ function fixCompactLists(list): any[] {
 }
 
 function getImageCaption(content): any {
-    let paragraph = XML.Node.build("w:p").insertChildren([
-        XML.Node.build("w:pPr").insertChildren([
+    let paragraph = XML.Node.build("w:p").appendChildren([
+        XML.Node.build("w:pPr").appendChildren([
             XML.Node.build("w:pStyle").setAttr("w:val", "ImageCaption"),
             XML.Node.build("w:contextualSpacing").setAttr("w:val", "true"),
         ]),
@@ -798,8 +729,8 @@ function getImageCaption(content): any {
 }
 
 function getListingCaption(content): any {
-    let elements = XML.Node.build("w:p").insertChildren([
-        XML.Node.build("w:pPr").insertChildren([
+    let elements = XML.Node.build("w:p").appendChildren([
+        XML.Node.build("w:pPr").appendChildren([
             XML.Node.build("w:pStyle").setAttr("w:val", "BodyText"),
             XML.Node.build("w:jc").setAttr("w:val", "left"),
         ]),
