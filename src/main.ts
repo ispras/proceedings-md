@@ -87,7 +87,7 @@ function getOrganizations(document: WordDocument, meta: PandocJsonMeta, language
 }
 
 function getAuthorsDetail(document: WordDocument, meta: PandocJsonMeta) {
-    let styleId = document.styles.resource.getStyleByName("Body Text").getId()
+    let styleId = document.styles.resource.getStyleByName("ispText_main").getId()
     let authors = meta.getSection("authors").asArray()
 
     let result = []
@@ -96,6 +96,11 @@ function getAuthorsDetail(document: WordDocument, meta: PandocJsonMeta) {
         for (let language of languages) {
             let line = author.getString("details_" + language)
             let newParagraph = OXML.buildParagraphWithStyle(styleId)
+            newParagraph.getChild("w:pPr").pushChild(
+                XML.Node.build("w:spacing")
+                    .setAttr("w:before", "30")
+                    .setAttr("w:after", "120")
+            )
             newParagraph.pushChild(OXML.buildParagraphTextTag(line))
             result.push(newParagraph)
         }
@@ -105,6 +110,10 @@ function getAuthorsDetail(document: WordDocument, meta: PandocJsonMeta) {
 }
 
 function getImageCaption(document: WordDocument, content: string): XML.Node {
+    // This function is called from patchPandocJson, so this caption is inserted in
+    // the content document, not in the template document.
+    // "Image Caption" is a pandoc style that later gets converted to "ispPicture_sign"
+
     let styleId = document.styles.resource.getStyleByName("Image Caption").getId()
 
     return XML.Node.build("w:p").appendChildren([
@@ -117,6 +126,9 @@ function getImageCaption(document: WordDocument, content: string): XML.Node {
 }
 
 function getListingCaption(document: WordDocument, content: string): XML.Node {
+    // Same note here:
+    // "Body Text" is a pandoc style that later gets converted to "ispText_main"
+
     let styleId = document.styles.resource.getStyleByName("Body Text").getId()
 
     return XML.Node.build("w:p").appendChildren([

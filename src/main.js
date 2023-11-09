@@ -1858,13 +1858,16 @@ function getOrganizations(document, meta, language) {
     return result;
 }
 function getAuthorsDetail(document, meta) {
-    let styleId = document.styles.resource.getStyleByName("Body Text").getId();
+    let styleId = document.styles.resource.getStyleByName("ispText_main").getId();
     let authors = meta.getSection("authors").asArray();
     let result = [];
     for (let author of authors) {
         for (let language of languages) {
             let line = author.getString("details_" + language);
             let newParagraph = buildParagraphWithStyle(styleId);
+            newParagraph.getChild("w:pPr").pushChild(Node.build("w:spacing")
+                .setAttr("w:before", "30")
+                .setAttr("w:after", "120"));
             newParagraph.pushChild(buildParagraphTextTag(line));
             result.push(newParagraph);
         }
@@ -1872,6 +1875,9 @@ function getAuthorsDetail(document, meta) {
     return result;
 }
 function getImageCaption(document, content) {
+    // This function is called from patchPandocJson, so this caption is inserted in
+    // the content document, not in the template document.
+    // "Image Caption" is a pandoc style that later gets converted to "ispPicture_sign"
     let styleId = document.styles.resource.getStyleByName("Image Caption").getId();
     return Node.build("w:p").appendChildren([
         Node.build("w:pPr").appendChildren([
@@ -1882,6 +1888,8 @@ function getImageCaption(document, content) {
     ]);
 }
 function getListingCaption(document, content) {
+    // Same note here:
+    // "Body Text" is a pandoc style that later gets converted to "ispText_main"
     let styleId = document.styles.resource.getStyleByName("Body Text").getId();
     return Node.build("w:p").appendChildren([
         Node.build("w:pPr").appendChildren([
