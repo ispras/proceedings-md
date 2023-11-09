@@ -1,20 +1,22 @@
-import * as XML from '../xml.js'
+import * as XML from 'src/xml.js'
+import * as OXML from 'src/word/oxml'
+import Relationships from "./relationships";
 
 export class Style extends XML.Wrapper {
     getBaseStyle() {
-        return this.getChildVal("w:basedOn")
+        return OXML.getChildVal(this.node, "w:basedOn")
     }
 
     getLinkedStyle() {
-        return this.getChildVal("w:link")
+        return OXML.getChildVal(this.node, "w:link")
     }
 
     getNextStyle() {
-        return this.getChildVal("w:link")
+        return OXML.getChildVal(this.node, "w:link")
     }
 
     getName() {
-        return this.getChildVal("w:name")
+        return OXML.getChildVal(this.node, "w:name")
     }
 
     getId() {
@@ -22,41 +24,23 @@ export class Style extends XML.Wrapper {
     }
 
     setBaseStyle(style: string | null) {
-        this.setChildVal("w:basedOn", style)
+        OXML.setChildVal(this.node, "w:basedOn", style)
     }
 
     setLinkedStyle(style: string | null) {
-        this.setChildVal("w:link", style)
+        OXML.setChildVal(this.node, "w:link", style)
     }
 
     setNextStyle(style: string | null) {
-        this.setChildVal("w:next", style)
+        OXML.setChildVal(this.node, "w:next", style)
     }
 
     setName(name: string) {
-        this.setChildVal("w:name", name)
+        OXML.setChildVal(this.node, "w:name", name)
     }
 
     setId(id: string) {
         this.node.setAttr("w:styleId", id)
-    }
-
-    private getChildVal(tag: string) {
-        let basedOnTag = this.node.getChild(tag)
-        if(basedOnTag) return basedOnTag.getAttr("w:val")
-        return null
-    }
-
-    private setChildVal(tag: string, value: string | null) {
-        if(value === null) {
-            this.node.removeChildren(tag)
-        } else {
-            let basedOnTag = this.node.getChild(tag)
-            if(basedOnTag) basedOnTag.setAttr("w:val", value)
-            else this.node.appendChildren([
-                XML.Node.build(tag).setAttr("w:val", value)
-            ])
-        }
     }
 }
 
@@ -105,6 +89,7 @@ export default class Styles extends XML.Serializable {
     styles: Map<string, Style> = new Map()
     docDefaults: DocDefaults | null = null
     latentStyles: LatentStyles | null = null
+    rels: Relationships
 
     readXml(xml: XML.Node) {
         this.styles = new Map()
@@ -126,14 +111,8 @@ export default class Styles extends XML.Serializable {
     toXml() {
         let styles = Array.from(this.styles.values())
 
-        return XML.Node.createDocument().appendChildren([
+        let result = XML.Node.createDocument().appendChildren([
             XML.Node.build("w:styles")
-                .setAttr("xmlns:mc", "http://schemas.openxmlformats.org/markup-compatibility/2006")
-                .setAttr("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships")
-                .setAttr("xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main")
-                .setAttr("xmlns:w14", "http://schemas.microsoft.com/office/word/2010/wordml")
-                .setAttr("xmlns:w15", "http://schemas.microsoft.com/office/word/2012/wordml")
-                .setAttr("mc:Ignorable", "w14 w15")
                 .appendChildren([
                     this.docDefaults.node.deepCopy(),
                     this.latentStyles.node.deepCopy()
@@ -142,6 +121,10 @@ export default class Styles extends XML.Serializable {
                     return style.node.deepCopy()
                 }))
         ])
+
+        result.getChild("w:styles").setAttrs(OXML.getProperXmlnsForDocument(result))
+
+        return result
     }
 
     removeStyle(style: Style) {
@@ -150,5 +133,12 @@ export default class Styles extends XML.Serializable {
 
     addStyle(style: Style) {
         this.styles.set(style.getId(), style)
+    }
+
+    getStyleByName(name: string) {
+        for(let [id, style] of this.styles) {
+            if(style.getName() === name) return style
+        }
+        return null
     }
 }

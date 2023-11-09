@@ -1,4 +1,6 @@
-import * as XML from '../xml.js'
+import * as XML from 'src/xml.js'
+import * as OXML from 'src/word/oxml'
+import path from "path";
 
 export interface ContentTypeDefault {
     extension: string,
@@ -76,6 +78,18 @@ export default class ContentTypes extends XML.Serializable {
             if(override.partName === partName) return override.contentType
         }
         return null
+    }
+
+    getContentTypeForPath(pathString: string) {
+        pathString = OXML.normalizePath(pathString)
+        let overrideContentType = this.getOverrideForPartName(pathString)
+
+        if(overrideContentType !== null) {
+            return overrideContentType
+        }
+
+        const extension = path.extname(pathString).slice(1)
+        return this.getContentTypeForExt(extension)
     }
 
     join(other: ContentTypes) {

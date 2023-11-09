@@ -34,7 +34,9 @@ function checkFilter(filter: Filter, node: Node) {
 }
 
 export type Filter = string | ((node: Node) => boolean) | null
-export type VisitCallback<PathType> = (node: Node, path: PathType) => (boolean | void)
+export type VisitCallbackSync<PathType> = (node: Node, path: PathType) => (boolean | void)
+export type VisitCallbackAsync<PathType> = (node: Node, path: PathType) => Promise<boolean | void>
+export type VisitCallback<PathType> = VisitCallbackSync<PathType> | VisitCallbackAsync<PathType>
 export type Path = number[]
 
 function getVisitArgs<PathType>(args: any[]) {
@@ -79,25 +81,23 @@ export class Node {
     pushChild(child: Node) {
         this.checkTemporary()
 
-        let tagName = this.getTagName()
-        if (!Array.isArray(this.element[tagName])) {
-            throw new Error("Cannot call pushChild on " + tagName + " element")
+        let children = this.getRawChildren()
+        if (children === null) {
+            throw new Error("Cannot call pushChild on " + this.getTagName() + " element")
         }
 
-        let childArray = this.element[tagName] as any[]
-        childArray.push(child.raw())
+        children.push(child.raw())
     }
 
     unshiftChild(child: Node) {
         this.checkTemporary()
 
-        let tagName = this.getTagName()
-        if (!Array.isArray(this.element[tagName])) {
-            throw new Error("Cannot call pushChild on " + tagName + " element")
+        let children = this.getRawChildren()
+        if (children === null) {
+            throw new Error("Cannot call unshiftChild on " + this.getTagName() + " element")
         }
 
-        let childArray = this.element[tagName] as any[]
-        childArray.unshift(child.raw())
+        children.unshift(child.raw())
     }
 
     getChildren(filter: Filter | null = null): Node[] {
@@ -239,29 +239,38 @@ export class Node {
     }
 
     removeChild(path: Path) {
+        if(path.length === 0) {
+            throw new Error("Cannot call removeChild with empty path")
+        }
+
         let topIndex = path.pop()
 
         let child = this.getChild(path)
-        let tagName = child.getTagName()
-        child.element[tagName].splice(topIndex, 1)
+        let childChildren = child.getRawChildren()
+
+        if (childChildren === null) {
+            throw new Error("Cannot call removeChild for " + child.getTagName() + " element")
+        }
+
+        childChildren.splice(topIndex, 1)
 
         path.push(topIndex)
     }
 
     removeChildren(filter: Filter = null) {
         this.checkTemporary()
-        let tagName = this.getTagName()
+        let children = this.getRawChildren()
 
-        if (!Array.isArray(this.element[tagName])) {
-            return;
+        if (children === null) {
+            throw new Error("Cannot call removeChildren on " + this.getTagName() + " element")
         }
 
         let node = new Node(null)
 
-        for (let i = 0; i < this.element[tagName].length; i++) {
-            node.element = this.element[tagName][i]
+        for (let i = 0; i < children.length; i++) {
+            node.element = children[i]
             if (checkFilter(filter, node)) {
-                this.element[tagName].splice(i, 1)
+                children.splice(i, 1)
                 i--
             }
         }
@@ -357,13 +366,20 @@ export class Node {
         return this
     }
 
-    getAttr(attribute: string): string {
+    getAttrs() {
+        if (!this.element[keys.attributes]) {
+            this.element[keys.attributes] = {}
+        }
+        return this.element[keys.attributes]
+    }
+
+    getAttr(attribute: string): string | null {
         this.checkTemporary()
 
-        if (!this.element[keys.attributes]) {
-            return undefined
-        }
-        return String(this.element[keys.attributes][attribute])
+        let attrs = this.getAttrs()
+        let attr = attrs[attribute]
+        if(attr === undefined) return null
+        return String(attr)
     }
 
     clearChildren(path: Path = []) {
@@ -377,11 +393,20 @@ export class Node {
     insertChildren(children: Node[], path: Path) {
         this.checkTemporary()
 
+        if(path.length === 0) {
+            throw new Error("Cannot call insertChildren with empty path")
+        }
+
         let insertIndex = path.pop()
         let parent = this.getChild(path)
         path.push(insertIndex)
 
-        let lastChildren = parent.element[parent.getTagName()]
+        let lastChildren = parent.getRawChildren()
+
+        if(lastChildren === null) {
+            throw new Error("Cannot call insertChildren for " + parent.getTagName() + " element")
+        }
+
         if (insertIndex < 0) {
             insertIndex = children.length + insertIndex + 1
         }
@@ -457,8 +482,23 @@ export class Node {
     }
 
     private markDestroyed() {
+        this.checkTemporary()
         // From now on, the checkTemporary method will throw
         this.tempDestroyed = true
+    }
+
+    getRawContents(): any[] | string | number {
+        this.checkTemporary()
+        return this.element[this.getTagName()]
+    }
+
+    getRawChildren(): any[] | null {
+        this.checkTemporary()
+        let contents = this.getRawContents()
+        if(Array.isArray(contents)) {
+            return contents
+        }
+        return null
     }
 
     shallowCopy() {
@@ -468,7 +508,17 @@ export class Node {
     }
 
     deepCopy() {
+        this.checkTemporary()
         return new Node(null).assign(this)
+    }
+
+    isLeaf() {
+        this.checkTemporary()
+        return this.getRawChildren() === null
+    }
+
+    getChildrenCount() {
+        return this.getRawChildren()?.length ?? 0
     }
 }
 
@@ -503,4 +553,35 @@ export class Wrapper extends Serializable {
     toXml() {
         return this.node
     }
+}
+
+export function getNamespace(name: string) {
+    let parts = name.split(":")
+    if(parts.length >= 2) {
+        return parts[0]
+    }
+    return null
+}
+
+export function* getUsedNames(tag: Node) {
+    let tagName = tag.getTagName()
+    yield tagName
+
+    let attributes = tag.getAttrs()
+
+    for(let key of Object.getOwnPropertyNames(attributes)) {
+        // Be safe from prototype pollution
+        if(key === "__proto__") continue
+        yield key
+    }
+}
+
+export function getTextContents(tag: Node): string {
+    let result = ""
+
+    tag.visitSubtree(keys.text, (node) => {
+        result += node.getText()
+    })
+
+    return result
 }

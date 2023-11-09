@@ -1,4 +1,4 @@
-import * as XML from '../xml.js'
+import * as XML from 'src/xml.js'
 
 export interface Relation {
     id: string
@@ -29,10 +29,10 @@ export default class Relationships extends XML.Serializable {
         return this
     }
 
-    toXMLString() {
+    toXml() {
         let relations = Array.from(this.relations.values())
 
-        let result = XML.Node.createDocument().appendChildren([
+        return XML.Node.createDocument().appendChildren([
             XML.Node.build("Relationships")
                 .setAttr("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")
                 .appendChildren(relations.map((relation) => {
@@ -42,8 +42,6 @@ export default class Relationships extends XML.Serializable {
                         .setAttr("Target", relation.target)
                 }))
         ])
-
-        return result.toXmlString()
     }
 
     getUnusedId() {
@@ -63,30 +61,5 @@ export default class Relationships extends XML.Serializable {
                 return rel
             }
         }
-    }
-
-    join(other: Relationships) {
-        let result = new Map<string, string>()
-        for (let otherRel of other.relations.values()) {
-            let existingTargetRel = this.getRelForTarget(otherRel.target)
-            if(existingTargetRel) {
-                result.set(otherRel.id, existingTargetRel.id)
-                continue
-            }
-
-            let newId = otherRel.id
-
-            if (this.relations.has(newId)) {
-                newId = this.getUnusedId()
-            }
-
-            this.relations.set(newId, {
-                ...otherRel,
-                id: newId,
-            })
-
-            result.set(otherRel.id, newId)
-        }
-        return result
     }
 }
