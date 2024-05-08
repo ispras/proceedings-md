@@ -22,6 +22,8 @@ ispras_templates:
         interests: algebraic structures in the Galois fields, modular
         arithmetic, neurocomputer technologies, digital signal processing,
         cryptographic methods for protecting information.
+      organizations: [ispras]
+      
     - name_ru: 'П.П. Петров'
       name_en: 'I.I. Ivanov'
       orcid: '0000-0000-0000-000'
@@ -35,56 +37,65 @@ ispras_templates:
         Petr Petrovich PETROV is a specialist of the Department of system
         programming of CMC of Lomonosov Moscow State University. His research
         interests include pattern recognition, residual class systems.
+      organizations: [msu]
 
   links:
-    - >-
-      Ермаков М. К., Вартанов С. П. Подход к проведению динамического анализа
-      Java-программ методом модификации виртуальной машины Java. Труды ИСП РАН,
-      том 27, вып. 2, 2015 г., стр. 23-38. DOI: 10.15514/ISPRAS-2015-27(2)-2./
-      Ermakov M.K, Vartanov S.P. Dynamic Java Program Analysis Using Virtual
-      Machine Modification. Trudy ISP RAN/Proc. ISP RAS, 2015, vol. 27, issue
-      2, pp. 23-38 (in Russian). DOI: 10.15514/ISPRAS-2015-27(2)-2.
-    - >-
-      Chervyakov N., Babenko M., Tchernykh A., Kucherov N., Miranda-López V.,
-      Cortés-Mendoza J. M. AR-RRNS: Configurable reliable distributed data
-      storage systems for Internet of Things to ensure security. Future
-      Generation Computer Systems, vol. 92, 2019, pp. 1080-1092.
-    - >-
-      Proskuryakova L., Meissner D., Rudnik P. (2015) The use of technology
-      platforms as a policy tool to address research challenges and technology
-      transfer. The Journal of Technology Transfer (online). Доступно по
-      ссылке: http://link.springer.com/article/10.1007/s10961-014-9373-8#/
-      page-1, 12.02.2016.
-    - >-
-      Burgess N. Scaling an RNS number using the core function. In Proc.
-      of the 16th IEEE Symposium on Computer Arithmetic, 2003. pp. 262-269.
-    - >-
-      Naveh Y., Rimon M., Jaeger I., Katz Y., Vinov M., Marcus E., Shurek G.
-      Constraint-Based Random Stimuli Generation for Hardware Verification.
-      AI Magazine, 28(3), 2007, pp. 13-30.
-    - >-
-      Dijkstra E.W. A Discipline of Programming. Prentice-Hall, 1976. 217 p.
-    - >-
-      Ettus Research, Universal Software Radio Peripheral and Daughter Boards,
-      Available at: http://www.ettus.com/product/details/UN210-KIT, accessed
-      30.01.2019.
-    - >-
-      Акушский И.Я., Юдицкий Д.И. Машинная арифметика в остаточных классах.
-      М., Советское радио, 1968, 440 c. / Akushsky I. Ya., Yuditsky D. I.
-      Computer arithmetic in residual classes. Moscow, Soviet Radio, 1968,
-      440 p. (in Russian).
+    - id: link1
+      description: >-
+          Ермаков М. К., Вартанов С. П. Подход к проведению динамического анализа
+          Java-программ методом модификации виртуальной машины Java. Труды ИСП РАН,
+          том 27, вып. 2, 2015 г., стр. 23-38. DOI: 10.15514/ISPRAS-2015-27(2)-2./
+          Ermakov M.K, Vartanov S.P. Dynamic Java Program Analysis Using Virtual
+          Machine Modification. Trudy ISP RAN/Proc. ISP RAS, 2015, vol. 27, issue
+          2, pp. 23-38 (in Russian). DOI: 10.15514/ISPRAS-2015-27(2)-2.
+    - id: link2
+      description: >-
+          Chervyakov N., Babenko M., Tchernykh A., Kucherov N., Miranda-López V.,
+          Cortés-Mendoza J. M. AR-RRNS: Configurable reliable distributed data
+          storage systems for Internet of Things to ensure security. Future
+          Generation Computer Systems, vol. 92, 2019, pp. 1080-1092.
+    - id: link3
+      description: >-
+          Proskuryakova L., Meissner D., Rudnik P. (2015) The use of technology
+          platforms as a policy tool to address research challenges and technology
+          transfer. The Journal of Technology Transfer (online). Доступно по
+          ссылке: http://link.springer.com/article/10.1007/s10961-014-9373-8#/
+          page-1, 12.02.2016.
+    - id: link4
+      description: >-
+          Burgess N. Scaling an RNS number using the core function. In Proc.
+          of the 16th IEEE Symposium on Computer Arithmetic, 2003. pp. 262-269.
+    - id: link5
+      description: >-
+          Naveh Y., Rimon M., Jaeger I., Katz Y., Vinov M., Marcus E., Shurek G.
+          Constraint-Based Random Stimuli Generation for Hardware Verification.
+          AI Magazine, 28(3), 2007, pp. 13-30.
+    - id: link6
+      description: >-
+          Dijkstra E.W. A Discipline of Programming. Prentice-Hall, 1976. 217 p.
+    - id: link7
+      description: >-
+          Ettus Research, Universal Software Radio Peripheral and Daughter Boards,
+          Available at: http://www.ettus.com/product/details/UN210-KIT, accessed
+          30.01.2019.
+    - id: link8
+      description: >-
+          Акушский И.Я., Юдицкий Д.И. Машинная арифметика в остаточных классах.
+          М., Советское радио, 1968, 440 c. / Akushsky I. Ya., Yuditsky D. I.
+          Computer arithmetic in residual classes. Moscow, Soviet Radio, 1968,
+          440 p. (in Russian).
 
-  organizations_ru:
-    - 'Институт системного программирования РАН, 109004, Россия, г. Москва, ул.
-      А. Солженицына, д. 25.'
-    - 'Московский государственный университет имени М.В. Ломоносова, 119991,
-      Россия, Москва, Ленинские горы, д. 1.'
-
-  organizations_en:
-    - 'Institute for System Programming of the Russian Academy of Sciences, 25,
-      Alexander Solzhenitsyn st., Moscow, 109004, Russia.'
-    - 'Lomonosov Moscow State University, GSP-1, Leninskie Gory, Moscow, 119991,
-      Russia.'
+  organizations:
+    - id: ispras
+      name_ru: 'Институт системного программирования РАН, 109004, Россия, г. Москва, ул.
+        А. Солженицына, д. 25.'
+      name_en: 'Institute for System Programming of the Russian Academy of Sciences, 25,
+        Alexander Solzhenitsyn st., Moscow, 109004, Russia.'
+    - id: msu
+      name_ru: 'Московский государственный университет имени М.В. Ломоносова, 119991,
+        Россия, Москва, Ленинские горы, д. 1.'
+      name_en: 'Lomonosov Moscow State University, GSP-1, Leninskie Gory, Moscow, 119991,
+        Russia.'
 
   abstract_ru: >-
     Различные компоненты Вашей статьи (заголовок статьи, авторы,
@@ -132,7 +143,7 @@ ispras_templates:
   acknowledgements_en: 'Блок «Благодарности» на английском языке.'
 ---
 
-## 1. Введение
+## Введение
 
 Приведенный ниже материал поможет Вам подготовить текст статьи для
 Трудов Института системного программирования РАН. Для подготовки
@@ -172,12 +183,12 @@ Microsoft Office Word или OpenOffice Writer.
 указанием города и страны, аннотация и ключевые слова на английском
 языке.
 
-## 2. Обзор форматирования
+## Обзор форматирования
 
 В этом разделе раскрыты характеристики стилей, используемых в данном
 документе.
 
-### 2.1 Требования по шрифтам
+### Требования по шрифтам
 
 Общие требования к оформлению:
 
@@ -218,7 +229,7 @@ Arial размера 16 пт. Задается выравнивание по ц�
 Roman размера 9 пт., и сразу вслед за ним вводится сам список ключевых
 слов (без использования заглавных букв), разделенных точками с запятой.
 
-### 2.2 Оформление абзаца
+### Оформление абзаца
 
 Выравнивание абзацев соответствует общепринятой практике -- в основном
 тексте «по ширине», в заголовках -- по центру (кроме заголовков
@@ -226,7 +237,7 @@ Roman размера 9 пт., и сразу вслед за ним вводит�
 обратите внимание, что для стиля «ispText_main» должен использоваться
 одинарный межстрочный интервал.
 
-### 2.3 Поля
+### Поля
 
 Статью необходимо приготовить для бумаги формата 16,5х24 см. Размеры
 полей:
@@ -235,7 +246,7 @@ Roman размера 9 пт., и сразу вслед за ним вводит�
 |---------|--------|--------|---------|----------|
 | 0,8 см  | 1 см   | 1.5 см | 1 см    | 0        |
 
-### 2.4 Рисунки
+### Рисунки
 
 Если в тексте статьи используются рисунки, подготовленные вне среды
 Microsoft Word или Open Office (в том числе, математические формулы),
@@ -254,18 +265,18 @@ JPEG, GIF, PNG) и иметь достаточно высокое качеств
 ![](image2.png){width="4.704861111111111in"
 height="1.0046817585301837in"}
 
-<div class="img-caption">Рис. 1. Геометрические фигуры</div>
-<div class="img-caption">Fig. 1. Geometric figures</div>
+<div class="img-caption">Рис. <span class=ref>fig:fig1</span>. Геометрические фигуры</div>
+<div class="img-caption">Fig. <span class=ref>fig:fig1</span>. Geometric figures</div>
 
-### 2.5 Таблицы
+### Таблицы
 
 При наличии в статье таблиц надтабличная надпись на двух языках ставится
 над таблицей, начинается с текста вида \"Табл. 1\" (\"Table 1\") и не
 выравнивается. Ссылка на таблицу в тексте статьи должна иметь вид
 \"табл. 1\".
 
-<div class="table-caption">Табл. 1. Пример таблицы</div>
-<div class="table-caption">Table 1. Table example</div>
+<div class="table-caption">Табл. <span class=ref>tab:tab1</span>. Пример таблицы</div>
+<div class="table-caption">Table <span class=ref>tab:tab1</span>. Table example</div>
 
 | **№** | **Геометрическая фигура** |
 |-------|---------------------------|
@@ -273,7 +284,7 @@ height="1.0046817585301837in"}
 | 2     | Круг                      |
 | 3     | Квадрат                   |
 
-### 2.6 Листинги
+### Листинги
 
 Фрагмент кода программного продукта оформляется в виде листинга. Подписи
 должны быть на двух языках и начинаться с текста вида \"Листинг 1\"
@@ -289,10 +300,10 @@ fn write(f: &File, data: &[u8]) -> io::Result<()> {
 }
 ```
 
-<div class="listing-caption">Листинг 1. Пример листинга</div>
-<div class="listing-caption">Listing 1. Listing example</div>
+<div class="listing-caption">Листинг <span class=ref>lst:lst1</span>. Пример листинга</div>
+<div class="listing-caption">Listing <span class=ref>lst:lst1</span>. Listing example</div>
 
-### 2.7 Формулы
+### Формулы
 
 Все формулы набираются с помощью формульного редактора. Формулы
 располагаются по центру. Если формулы нумеруются, то их номера
@@ -302,7 +313,7 @@ $$\begin{array}{r}
 U_{1} = n_{1}n_{1} + \frac{n_{1}\left( n_{1} + 1 \right)}{2} - R_{1};\#(1)
 \end{array}$$
 
-### 2.8 Списки
+### Списки
 
 Списки выравниваются «по ширине», выравнивание на 0 см, отступ текста:
 0,6 см.

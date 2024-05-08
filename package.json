@@ -6,6 +6,15 @@
     "jszip": "^3.10.1"
   },
   "devDependencies": {
-    "@types/node": "^20.8.7"
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.5",
+    "@types/node": "^20.8.7",
+    "@zerollup/ts-transform-paths": "^1.7.18",
+    "rollup": "^4.3.0",
+    "tslib": "^2.6.2"
+  },
+  "scripts": {
+    "build": "npx rollup --config rollup.config.ts --configPlugin @rollup/plugin-typescript"
   }
 }
