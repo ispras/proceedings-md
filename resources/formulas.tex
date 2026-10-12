@@ -1,0 +1,12 @@
+\documentclass[border=0pt]{standalone}
+\usepackage{amsthm,amsmath,amscd,amsfonts,amssymb,mathtools}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{tikz}\usetikzlibrary{arrows,calc}
+\usepackage{fontspec}\usepackage{unicode-math}
+\setmainfont{cmunrm.otf}[Path={FONT_DIRECTORY},BoldFont=cmunbx.otf,ItalicFont=cmunti.otf,BoldItalicFont=cmunbi.otf]
+\newcommand{\ncirc}[1]{\tikz[baseline=(char.base)]{\node[shape=circle, draw, inner sep=0pt, minimum width=2.4ex, minimum height=2.4ex, line width=0.4pt, font=\tiny] (char) {\makebox[0pt]{#1}};}}
+\newcommand{\sbarrow}{\tikz[baseline=0.6ex]{\useasboundingbox (0,-0.05) rectangle (0.8,0.5);\draw[->, line width=0.7pt, shorten >=1pt, shorten <=1pt] (0,0.3) -- (0.8,0.3);\node[font=\scriptsize, anchor=north, inner sep=1pt] at (0.4,0.28) {S.B.};}}
+\newcommand{\nsbarrow}{\tikz[baseline=0.6ex]{\useasboundingbox (0,-0.05) rectangle (0.8,0.55);\draw[->, line width=0.7pt, shorten >=1pt, shorten <=1pt] (0,0.3) -- (0.8,0.3);\node[font=\scriptsize, anchor=north, inner sep=1pt] at (0.4,0.28) {S.B.};\draw[line width=0.7pt] (0.3,0.15) -- (0.5,0.45);}}
+\usepackage[active,tightpage,displaymath,textmath]{preview}
+\setlength\PreviewBorder{0pt}
+\newcommand{\sbbaselinemark}{\textcolor{red}{\rule[0pt]{4pt}{0.4pt}}}

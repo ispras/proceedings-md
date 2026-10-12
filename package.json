@@ -1,11 +1,41 @@
 {
-  "name": "docx-patcher",
+  "name": "proceedings-md",
   "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsx tools/cli.ts",
+    "check": "tsx tools/cli.ts --check",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check tools test package.json tsconfig.json README.md FORMAT.md",
+    "build:all": "tsx tools/cli.ts --figures --pdf",
+    "figures": "tsx tools/refresh-figures.ts"
+  },
   "dependencies": {
-    "fast-xml-parser": "^4.3.2",
-    "jszip": "^3.10.1"
+    "fast-xml-parser": "5.11.2",
+    "image-size": "2.0.4",
+    "jszip": "3.10.1",
+    "mdast-util-from-markdown": "2.0.3",
+    "mdast-util-frontmatter": "2.0.1",
+    "mdast-util-gfm-table": "2.0.0",
+    "mdast-util-math": "3.0.0",
+    "micromark-extension-frontmatter": "2.0.0",
+    "micromark-extension-gfm-table": "2.1.1",
+    "micromark-extension-math": "3.1.0",
+    "pngjs": "7.0.0",
+    "unist-util-visit": "5.1.0",
+    "yaml": "2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^20.8.7"
+    "@types/mdast": "4.0.4",
+    "@types/node": "22.15.30",
+    "@types/pngjs": "6.0.5",
+    "prettier": "3.5.3",
+    "tsx": "4.20.3",
+    "typescript": "5.8.3"
   }
 }
